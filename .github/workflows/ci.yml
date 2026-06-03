@@ -1,0 +1,174 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  lint:
+    name: Lint (ruff + black + mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install linters
+        run: |
+          pip install ruff==0.7.2 black==24.10.0 mypy==1.13.0
+      - name: Ruff
+        run: ruff check .
+      - name: Black check
+        run: black --check --line-length 100 .
+      - name: mypy
+        run: mypy --no-implicit-optional --ignore-missing-imports modules/ routes/ web_app.py
+
+  test:
+    name: Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install deps
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+      - name: Run unit tests
+        run: pytest --cov=modules,routes --cov-report=xml --cov-fail-under=70 -q
+      - name: Upload coverage
+        if: matrix.python-version == '3.11'
+        uses: codecov/codecov-action@v4
+        with:
+          file: coverage.xml
+          fail_ci_if_error: false
+
+  e2e:
+    name: E2E (Playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install deps
+        run: |
+          pip install -r requirements.txt
+          pip install playwright pytest-playwright
+      - name: Install browsers
+        run: playwright install --with-deps chromium
+      - name: Run E2E
+        run: pytest tests/e2e/ -v
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: test-results/
+
+  build:
+    name: Docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t jztz_v17:ci-${{ github.sha }} .
+      - name: Smoke test (start + curl /api/live)
+        run: |
+          docker run -d --name ci-test -p 5000:5000 jztz_v17:ci-${{ github.sha }}
+          sleep 5
+          curl -fsS http://localhost:5000/api/live || (docker logs ci-test && exit 1)
+          docker rm -f ci-test
+
+  # ---------------------------------------------------------------------------
+  # Release job — fires on v* tag push (e.g. v19.0.0, v19.1.0)
+  # Builds multi-arch image (linux/amd64 + linux/arm64) and pushes to GHCR.
+  # Image tags applied:
+  #   - v{tag}              e.g. v19.0.0
+  #   - latest              only when the tag is on the default branch
+  #   - sha-{7}             short SHA for traceability
+  # Requires repo secret: GITHUB_TOKEN (auto, default permissions).
+  # To deploy: docker pull ghcr.io/${{ github.repository_owner }}/jztz_v17:v19
+  # ---------------------------------------------------------------------------
+  release:
+    name: Release (buildx + push to GHCR)
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/v}"
+          echo "version=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Short SHA: ${GITHUB_SHA::7}"
+          echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/jztz_v17
+          tags: |
+            type=ref,event=tag
+            type=sha,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push (multi-arch)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+
+      - name: Generate release notes
+        uses: softprops/action-gh-release@v2
+        with:
+          body: |
+            ## jztz_v17 v${{ steps.version.outputs.version }}
+
+            Docker image: \`\`\`ghcr.io/${{ github.repository_owner }}/jztz_v17:v${{ steps.version.outputs.version }}\`\`\`
+
+            ### Pull & run
+
+            \`\`\`bash
+            docker pull ghcr.io/${{ github.repository_owner }}/jztz_v17:v${{ steps.version.outputs.version }}
+            docker run -d --name jztz-app -p 5559:5000 \\
+              --env-file .env \\
+              ghcr.io/${{ github.repository_owner }}/jztz_v17:v${{ steps.version.outputs.version }}
+            curl http://localhost:5559/api/live
+            \`\`\`
+
+            See [DEPLOY.md](../../blob/v${{ steps.version.outputs.version }}/DEPLOY.md) for full deployment guide.
+          draft: false
+          prerelease: ${{ contains(needs.test.outputs.coverage, 'fail') }}

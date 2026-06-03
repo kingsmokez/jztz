@@ -1,0 +1,27 @@
+codecov:
+  require_ci_to_pass: yes
+  notify:
+    after_n_builds: 4
+    wait_for_ci: yes
+
+coverage:
+  precision: 2
+  round: down
+  range: "70...90"
+  status:
+    project:
+      default:
+        target: 80%
+        threshold: 2%
+        if_ci_failed: error
+    patch:
+      default:
+        target: 70%
+        threshold: 5%
+
+comment:
+  layout: "header, diff, flags, components, files, footer"
+  behavior: default
+  require_changes: no
+  require_base: no
+  require_head: yes

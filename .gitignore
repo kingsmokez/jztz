@@ -1,0 +1,100 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Cache and temporary files
+*.cache
+*.log
+*.tmp
+
+# Test/coverage artifacts
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage_*
+coverage_*.txt
+coverage_baseline.txt
+test_output.txt
+
+# Build / scan artifacts
+.codegraph/
+.dexter/
+modules/.dexter/
+modules/dexter/
+archive/
+
+# Runtime cache files
+daily_pick_cache.json
+wp2_pick_cache.json
+auction_pick_cache.json
+offline_stocks.json
+sector_codes.json
+data/
+backtest/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Backup files (Phase 1 Task 4: v19 重构后 *.bak 应移至 archive/)
+*.bak
+*.bak.py
+
+# Environment files (Phase 2 Task 9: 仅 .env.example 入库)
+.env
+.env.local
+
+# OMC / oh-my-opencode state (本地状态不入库)
+.omo/state/
+.omo/notepads/optimization-v19/*.md.tmp
+.omc/state/
+.omc/notepad.md
+.omc/project-memory.json
+.omc/research/
+.omc/plans/
+.omc/logs/
+.omc/sessions/
+
+# Scratch / temp directories
+temp_repo/
+/tmp/
+*.tmp
+*.bak
+*.bak.py
+PLAN.md
+optimization_report.md
+claude-watchdog.ps1
+push_to_github.bat
+新建*.md

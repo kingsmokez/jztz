@@ -1,0 +1,313 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "jztz_v17 API",
+    "version": "20.0.0",
+    "description": "A 股智能选股系统 — 多因子评分 + 实时行情 + 回测 + 监控",
+    "contact": {
+      "name": "kingsmokez",
+      "url": "https://github.com/kingsmokez/jztz_v17"
+    },
+    "license": {
+      "name": "MIT"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:5559",
+      "description": "Local development"
+    },
+    {
+      "url": "https://stocks.example.com",
+      "description": "Production (replace with your domain)"
+    }
+  ],
+  "tags": [
+    {"name": "health",  "description": "Liveness / readiness / detailed health"},
+    {"name": "metrics", "description": "Prometheus instrumentation"},
+    {"name": "stream",  "description": "Server-Sent Events real-time push"},
+    {"name": "picker",  "description": "Stock-picking endpoints (daily / auction / strong / wp2)"},
+    {"name": "market",  "description": "Real-time market data and search"},
+    {"name": "system",  "description": "Cache, industries, news"}
+  ],
+  "paths": {
+    "/api/live": {
+      "get": {
+        "tags": ["health"],
+        "summary": "Liveness probe",
+        "description": "Always returns 200 if the process is alive. Used by Docker / k8s liveness probes.",
+        "responses": {
+          "200": {
+            "description": "Process alive",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Health"}}}
+          }
+        }
+      }
+    },
+    "/api/ready": {
+      "get": {
+        "tags": ["health"],
+        "summary": "Readiness probe",
+        "description": "200 only if critical dependencies (filesystem + cache) are OK. Eastmoney API is non-critical.",
+        "responses": {
+          "200": {"description": "Ready", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Readiness"}}}},
+          "503": {"description": "Not ready (filesystem or cache down)", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Readiness"}}}}
+        }
+      }
+    },
+    "/api/health": {
+      "get": {
+        "tags": ["health"],
+        "summary": "Detailed health report",
+        "description": "Returns full component status + circuit breaker state. Never returns 5xx even when downstream is down.",
+        "responses": {
+          "200": {"description": "Always 200", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DetailedHealth"}}}}
+        }
+      }
+    },
+    "/api/metrics": {
+      "get": {
+        "tags": ["metrics"],
+        "summary": "Prometheus metrics",
+        "description": "Returns application + process metrics in Prometheus text exposition format (v0.0.4). Includes cache hit/miss, circuit-breaker state, external API latency histograms, HTTP request duration, and process CPU/RSS/uptime.",
+        "responses": {
+          "200": {
+            "description": "Metrics in text/plain; version=0.0.4",
+            "content": {"text/plain": {"schema": {"type": "string"}}}
+          }
+        }
+      }
+    },
+    "/api/sse": {
+      "get": {
+        "tags": ["stream"],
+        "summary": "Server-Sent Events",
+        "description": "Long-lived SSE stream. Emits a snapshot of picker data availability. Heartbeats every 30s. Reverse proxy MUST set `proxy_buffering off` (see DEPLOY.md §3).",
+        "responses": {
+          "200": {
+            "description": "SSE stream (text/event-stream)",
+            "content": {"text/event-stream": {"schema": {"type": "string"}}}
+          }
+        }
+      }
+    },
+    "/api/market": {
+      "get": {
+        "tags": ["market"],
+        "summary": "Full-market top N picks",
+        "description": "Scan 5000+ A 股, score via 5-factor model (value 36% / quality 11% / growth 8% / momentum 12% / sentiment 33%), return top N.",
+        "parameters": [
+          {"name": "top", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20}, "description": "Number of top stocks to return"}
+        ],
+        "responses": {
+          "200": {"description": "Top N picks", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}}}
+        }
+      }
+    },
+    "/api/quote": {
+      "get": {
+        "tags": ["market"],
+        "summary": "Single stock quote",
+        "description": "Realtime quote for a given stock code.",
+        "parameters": [
+          {"name": "code", "in": "query", "required": true, "schema": {"type": "string", "example": "000001.SZ"}, "description": "Stock code with exchange suffix"}
+        ],
+        "responses": {
+          "200": {"description": "Quote data", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}}}
+        }
+      }
+    },
+    "/api/stock_detail": {
+      "get": {
+        "tags": ["market"],
+        "summary": "Detailed stock data",
+        "description": "Comprehensive fundamentals + technicals for a single stock.",
+        "parameters": [
+          {"name": "code", "in": "query", "required": true, "schema": {"type": "string"}}
+        ],
+        "responses": {
+          "200": {"description": "Stock detail", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}}}
+        }
+      }
+    },
+    "/api/search": {
+      "post": {
+        "tags": ["market"],
+        "summary": "Search stock by name or code",
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"type": "object", "properties": {"keyword": {"type": "string", "example": "平安"}}, "required": ["keyword"]}}}
+        },
+        "responses": {
+          "200": {"description": "Search results", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}}}
+        }
+      }
+    },
+    "/api/search_stock": {
+      "get": {
+        "tags": ["market"],
+        "summary": "Search stock (GET version)",
+        "parameters": [
+          {"name": "q", "in": "query", "required": true, "schema": {"type": "string", "example": "000001"}}
+        ],
+        "responses": {
+          "200": {"description": "Search results", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}}}
+        }
+      }
+    },
+    "/api/daily_pick": {
+      "get": {
+        "tags": ["picker"],
+        "summary": "Daily pick (cached)",
+        "description": "Returns the daily pick cached from 9:26 / 14:30 runs.",
+        "responses": {
+          "200": {"description": "Daily pick data", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}}}
+        }
+      }
+    },
+    "/api/daily_pick_run": {
+      "post": {
+        "tags": ["picker"],
+        "summary": "Trigger daily pick (sync)",
+        "description": "Re-runs the daily pick synchronously. Takes 5-30s.",
+        "responses": {
+          "200": {"description": "Pick results", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}}}
+        }
+      }
+    },
+    "/api/auction_pick": {
+      "get": {
+        "tags": ["picker"],
+        "summary": "Auction / low-value pick (cached)",
+        "responses": {
+          "200": {"description": "Auction pick data", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}}}
+        }
+      }
+    },
+    "/api/auction_status": {
+      "get": {
+        "tags": ["picker"],
+        "summary": "Auction picker status",
+        "responses": {
+          "200": {"description": "Status", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}}}
+        }
+      }
+    },
+    "/api/auction_preselect": {
+      "post": {
+        "tags": ["picker"],
+        "summary": "Auction pre-select candidates",
+        "responses": {
+          "200": {"description": "Pre-select results", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}}}
+        }
+      }
+    },
+    "/api/industries": {
+      "get": {
+        "tags": ["system"],
+        "summary": "List all A 股 industries",
+        "responses": {
+          "200": {"description": "Industry list", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}}}
+        }
+      }
+    },
+    "/api/cache/stats": {
+      "get": {
+        "tags": ["system"],
+        "summary": "Cache hit/miss statistics",
+        "responses": {
+          "200": {"description": "Cache stats", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}}}
+        }
+      }
+    },
+    "/api/news": {
+      "get": {
+        "tags": ["system"],
+        "summary": "Latest market news",
+        "parameters": [
+          {"name": "limit", "in": "query", "schema": {"type": "integer", "default": 20}}
+        ],
+        "responses": {
+          "200": {"description": "News list", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}}}
+        }
+      }
+    },
+    "/api/ai/analyze": {
+      "post": {
+        "tags": ["system"],
+        "summary": "AI-powered stock analysis",
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"type": "object", "properties": {"code": {"type": "string"}}, "required": ["code"]}}}
+        },
+        "responses": {
+          "200": {"description": "Analysis result", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}}}
+        }
+      }
+    },
+    "/api/docs": {
+      "get": {
+        "tags": ["system"],
+        "summary": "Swagger UI (this page)",
+        "responses": {
+          "200": {"description": "HTML", "content": {"text/html": {"schema": {"type": "string"}}}}
+        }
+      }
+    },
+    "/api/openapi.json": {
+      "get": {
+        "tags": ["system"],
+        "summary": "OpenAPI 3.0 spec (machine-readable)",
+        "responses": {
+          "200": {"description": "JSON spec", "content": {"application/json": {"schema": {"type": "object"}}}}
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ApiResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {"type": "boolean", "description": "True if the request succeeded"},
+          "data": {"description": "Payload (any shape)"},
+          "error": {"type": "string", "description": "Error message if ok=False"},
+          "request_id": {"type": "string", "description": "Per-request correlation id"}
+        },
+        "required": ["ok"]
+      },
+      "Health": {
+        "type": "object",
+        "properties": {
+          "status": {"type": "string", "example": "alive"},
+          "ts": {"type": "integer", "description": "Unix timestamp"}
+        }
+      },
+      "Readiness": {
+        "type": "object",
+        "properties": {
+          "status": {"type": "string", "enum": ["ready", "not_ready"]},
+          "components": {
+            "type": "object",
+            "properties": {
+              "eastmoney": {"type": "object"},
+              "filesystem": {"type": "object"},
+              "cache": {"type": "object"}
+            }
+          },
+          "ts": {"type": "integer"}
+        }
+      },
+      "DetailedHealth": {
+        "type": "object",
+        "properties": {
+          "status": {"type": "string", "example": "ok"},
+          "version": {"type": "string", "example": "v20"},
+          "components": {"type": "object"},
+          "circuits": {"type": "object", "description": "Circuit-breaker state per upstream (CLOSED/HALF_OPEN/OPEN)"},
+          "ts": {"type": "integer"}
+        }
+      }
+    }
+  }
+}

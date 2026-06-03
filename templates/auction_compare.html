@@ -1,0 +1,1036 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>竞价选股对比</title>
+    <style>
+        :root {
+            --bg-primary: #18182a;
+            --bg-secondary: #12121a;
+            --bg-card: #1a1a2e;
+            --border: #2a2a3a;
+            --text-primary: #e0e0e8;
+            --text-secondary: #9999aa;
+            --text-muted: #666677;
+            --accent-blue: #5b8cc9;
+            --accent-green: #2d9e5f;
+            --accent-purple: #9b7cb8;
+            --accent-orange: #d4a017;
+            --up-color: #cf4444;
+            --down-color: #2d9e5f;
+            --radius-md: 6px;
+            --radius-lg: 8px;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.6;
+            font-size: 14px;
+        }
+
+        .navbar {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background: #18182a;
+            border-bottom: 1px solid #2a2a3a;
+            padding: 0 28px;
+            height: 52px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .nav-brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 600;
+            font-size: 15px;
+        }
+
+        .nav-logo {
+            width: 28px; height: 28px;
+            background: #d4a017;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        .nav-links { display: flex; gap: 4px; }
+
+        .nav-link {
+            color: #8888aa;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            padding: 6px 14px;
+            border-radius: 4px;
+            transition: all 0.15s ease;
+        }
+
+        .nav-link:hover { color: #fff; background: rgba(255,255,255,0.05); }
+        .nav-link.active { color: #fff; background: rgba(212,160,23,0.15); }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 24px 28px;
+        }
+
+        .header {
+            text-align: center;
+            padding: 20px 0;
+            margin-bottom: 20px;
+        }
+
+        .header h1 {
+            font-size: 22px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .header .subtitle {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .header-actions {
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+            margin-top: 20px;
+        }
+
+        .btn {
+            padding: 10px 22px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            border: none;
+            transition: all 0.15s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: #d4a017;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #b8860b;
+        }
+
+        .btn-secondary {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+        }
+
+        .btn-secondary:hover { border-color: #d4a017; color: #d4a017; }
+
+        /* 差异对比区 */
+        .diff-section {
+            background: var(--bg-card);
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .diff-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .diff-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+        }
+
+        .diff-item {
+            text-align: center;
+            padding: 14px;
+            background: var(--bg-secondary);
+            border-radius: 6px;
+        }
+
+        .diff-item .label {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+
+        .diff-item .value {
+            font-size: 24px;
+            font-weight: 700;
+        }
+
+        .diff-item .value.positive { color: var(--accent-green); }
+        .diff-item .value.negative { color: var(--up-color); }
+        .diff-item .value.neutral { color: var(--text-primary); }
+
+        /* 参数对比表格 */
+        .params-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 16px;
+        }
+
+        .params-table th, .params-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .params-table th {
+            font-size: 12px;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+
+        .params-table td { font-size: 13px; }
+        .params-table .param-name { color: var(--text-primary); }
+        .params-table .param-original { color: #d4a017; }
+        .params-table .param-optimized { color: #cd7f32; }
+        .params-table .param-diff { color: #2d9e5f; }
+
+        /* 对比布局 */
+        .compare-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            margin-bottom: 24px;
+        }
+
+        .version-card {
+            background: var(--bg-card);
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            overflow: hidden;
+        }
+
+        .version-header {
+            padding: 14px 18px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .version-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .version-badge {
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .badge-original {
+            background: rgba(212,160,23,0.15);
+            color: #d4a017;
+        }
+
+        .badge-optimized {
+            background: rgba(205,127,50,0.15);
+            color: #cd7f32;
+        }
+
+        .version-stats {
+            display: flex;
+            gap: 12px;
+        }
+
+        .stat-box {
+            text-align: center;
+            padding: 8px 16px;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+        }
+
+        .stat-box .value {
+            font-size: 16px;
+            font-weight: 700;
+            color: #d4a017;
+        }
+
+        .stat-box .label {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .version-content {
+            padding: 20px;
+        }
+
+        /* 股票列表 */
+        .stock-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .stock-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 12px;
+            background: var(--bg-secondary);
+            border-radius: 4px;
+            transition: all 0.15s ease;
+            cursor: default;
+        }
+
+        .stock-item.clickable {
+            cursor: pointer;
+        }
+
+        .stock-item.clickable:hover {
+            background: var(--bg-primary);
+            border: 1px solid #3a3a4a;
+        }
+
+        .stock-rank {
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 12px;
+            flex-shrink: 0;
+        }
+
+        .rank-1 { background: #d4a017; color: white; }
+        .rank-2 { background: #cd7f32; color: white; }
+        .rank-3 { background: #2d9e5f; color: white; }
+        .rank-other { background: var(--bg-primary); color: var(--text-muted); border: 1px solid var(--border); }
+
+        .stock-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .stock-info .name {
+            font-weight: 600;
+            font-size: 13px;
+            margin-bottom: 1px;
+        }
+
+        .stock-info .code {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        .stock-metrics {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+
+        .metric {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 3px 6px;
+            background: rgba(88,166,255,0.08);
+            border-radius: 4px;
+            min-width: 42px;
+        }
+
+        .metric .value {
+            font-size: 12px;
+            font-weight: 700;
+            color: #d4a017;
+        }
+
+        .metric .label {
+            font-size: 10px;
+            color: var(--text-muted);
+        }
+
+        .stock-score {
+            text-align: right;
+            flex-shrink: 0;
+        }
+
+        .stock-score .score-value {
+            font-size: 14px;
+            font-weight: 700;
+            color: #cd7f32;
+        }
+
+        .stock-score .score-label {
+            font-size: 10px;
+            color: var(--text-muted);
+        }
+
+        /* 卖出建议 */
+        .sell-advice {
+            padding: 4px 8px;
+            background: rgba(39,174,96,0.1);
+            border-radius: 4px;
+            font-size: 11px;
+            color: #2d9e5f;
+            white-space: nowrap;
+        }
+
+        /* 折叠按钮 */
+        .expand-btn {
+            display: block;
+            width: 100%;
+            padding: 8px;
+            margin-top: 8px;
+            background: var(--bg-secondary);
+            border: 1px dashed var(--border);
+            border-radius: 4px;
+            color: var(--text-secondary);
+            font-size: 13px;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.15s ease;
+        }
+
+        .expand-btn:hover {
+            border-color: #d4a017;
+            color: #d4a017;
+        }
+
+        /* 竞价确认结果 - 对齐对比区 */
+        .confirm-compare {
+            background: var(--bg-card);
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            padding: 20px;
+            margin-bottom: 24px;
+        }
+
+        .confirm-compare-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .confirm-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 8px;
+        }
+
+        .confirm-stock {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 16px;
+            background: var(--bg-secondary);
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            transition: all 0.15s ease;
+        }
+
+        .confirm-stock:hover {
+            border-color: #3a3a4a;
+        }
+
+        .confirm-stock .rank {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+
+        .confirm-stock .rank.gold { background: #d4a017; color: white; }
+        .confirm-stock .rank.silver { background: #cd7f32; color: white; }
+        .confirm-stock .rank.bronze { background: #2d9e5f; color: white; }
+        .confirm-stock .rank.normal { background: var(--bg-primary); color: var(--text-muted); border: 1px solid var(--border); }
+
+        .confirm-stock .info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .confirm-stock .info .name {
+            font-weight: 700;
+            font-size: 15px;
+        }
+
+        .confirm-stock .info .code {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .confirm-stock .tags {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .confirm-stock .tag {
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .tag-gap { background: rgba(207,68,68,0.15); color: #cf4444; }
+        .tag-vr { background: rgba(91,140,201,0.15); color: #5b8cc9; }
+        .tag-amount { background: rgba(155,124,184,0.15); color: #9b7cb8; }
+        .tag-score { background: rgba(212,160,23,0.15); color: #d4a017; }
+        .tag-advice { background: rgba(45,158,95,0.1); color: #2d9e5f; }
+
+        .confirm-empty {
+            padding: 20px;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 13px;
+            background: var(--bg-secondary);
+            border-radius: 6px;
+            border: 1px dashed var(--border);
+        }
+
+        /* 空状态 */
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-secondary);
+        }
+
+        .empty-state .icon {
+            font-size: 48px;
+            margin-bottom: 12px;
+            opacity: 0.4;
+        }
+
+        /* 加载状态 */
+        .loading {
+            text-align: center;
+            padding: 40px;
+        }
+
+        .loading-spinner {
+            width: 32px;
+            height: 32px;
+            border: 3px solid var(--border);
+            border-top-color: #d4a017;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 16px;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .section-label {
+            font-weight: 600;
+            font-size: 14px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .section-label .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .section-label .dot.pool { background: var(--accent-purple); }
+        .section-label .dot.confirm { background: var(--accent-green); }
+
+        .divider {
+            margin: 16px 0;
+            border-top: 1px solid var(--border);
+        }
+
+        @media (max-width: 1200px) {
+            .compare-grid { grid-template-columns: 1fr; }
+            .diff-grid { grid-template-columns: repeat(2, 1fr); }
+            .confirm-row { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">
+            <div class="nav-logo">C</div>
+            <span>竞价选股对比</span>
+        </div>
+        <div class="nav-links">
+            <a href="/" class="nav-link">首页</a>
+            <a href="/auction_pick" class="nav-link">原版竞价</a>
+            <a href="/auction_compare" class="nav-link active">版本对比</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="header">
+            <h1>竞价选股版本对比</h1>
+            <p class="subtitle">原版策略 vs 优化版策略 - 一键执行对比查看效果差异</p>
+            <div class="header-actions">
+                <button class="btn btn-primary" onclick="executeCompare()" id="executeBtn">
+                    同时执行两个版本
+                </button>
+                <a href="/auction_pick" class="btn btn-secondary">返回原版页面</a>
+            </div>
+        </div>
+
+        <!-- 差异对比区 -->
+        <div class="diff-section">
+            <div class="diff-title">
+                <span>版本差异统计</span>
+            </div>
+            <div class="diff-grid">
+                <div class="diff-item">
+                    <div class="label">候选池数量差异</div>
+                    <div class="value neutral" id="poolDiff">--</div>
+                </div>
+                <div class="diff-item">
+                    <div class="label">候选池增长比例</div>
+                    <div class="value neutral" id="poolIncrease">--</div>
+                </div>
+                <div class="diff-item">
+                    <div class="label">选股数量差异</div>
+                    <div class="value neutral" id="stocksDiff">--</div>
+                </div>
+                <div class="diff-item">
+                    <div class="label">选股增长比例</div>
+                    <div class="value neutral" id="stocksIncrease">--</div>
+                </div>
+            </div>
+
+            <table class="params-table">
+                <thead>
+                    <tr>
+                        <th>参数</th>
+                        <th>原版</th>
+                        <th>优化版</th>
+                        <th>改进说明</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="param-name">5日涨幅要求</td>
+                        <td class="param-original">-10%~25%</td>
+                        <td class="param-optimized">-10%~25%</td>
+                        <td class="param-diff">大幅放宽，包含刚启动股票</td>
+                    </tr>
+                    <tr>
+                        <td class="param-name">量能递增要求</td>
+                        <td class="param-original">x0.5</td>
+                        <td class="param-optimized">x0.5</td>
+                        <td class="param-diff">大幅放宽量能要求</td>
+                    </tr>
+                    <tr>
+                        <td class="param-name">高开阈值</td>
+                        <td class="param-original">0.5%~7%</td>
+                        <td class="param-optimized">动态调整</td>
+                        <td class="param-diff">根据大盘、昨日涨幅动态调整</td>
+                    </tr>
+                    <tr>
+                        <td class="param-name">筛选方式</td>
+                        <td class="param-original">评分制(60分)</td>
+                        <td class="param-optimized">评分制(60分)</td>
+                        <td class="param-diff">灵活评分，不漏好票</td>
+                    </tr>
+                    <tr>
+                        <td class="param-name">卖出建议</td>
+                        <td class="param-original">无</td>
+                        <td class="param-optimized">个性化建议</td>
+                        <td class="param-diff">根据股票特征生成策略</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 竞价确认结果对齐对比区（放在前面，方便对比） -->
+        <div class="confirm-compare" id="confirmCompareSection" style="display: none;">
+            <div class="confirm-compare-title">
+                <span>竞价确认结果对比</span>
+            </div>
+            <div id="confirmCompareContent"></div>
+        </div>
+
+        <!-- 双版本候选池对比 -->
+        <div class="compare-grid">
+            <!-- 原版 -->
+            <div class="version-card">
+                <div class="version-header">
+                    <div class="version-title">
+                        <span class="version-badge badge-original">原版 v1</span>
+                        <span style="font-weight:600;">竞价确认·强势早盘</span>
+                    </div>
+                    <div class="version-stats">
+                        <div class="stat-box">
+                            <div class="value" id="originalPoolCount">--</div>
+                            <div class="label">候选池</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="value" id="originalStocksCount">--</div>
+                            <div class="label">选股结果</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="version-content" id="originalContent">
+                    <div class="empty-state">
+                        <div class="icon">⏳</div>
+                        <span>点击上方按钮执行对比</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 优化版 -->
+            <div class="version-card">
+                <div class="version-header">
+                    <div class="version-title">
+                        <span class="version-badge badge-optimized">优化版 v2</span>
+                        <span style="font-weight:600;">动态阈值·评分筛选</span>
+                    </div>
+                    <div class="version-stats">
+                        <div class="stat-box">
+                            <div class="value" id="optimizedPoolCount">--</div>
+                            <div class="label">候选池</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="value" id="optimizedStocksCount">--</div>
+                            <div class="label">选股结果</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="version-content" id="optimizedContent">
+                    <div class="empty-state">
+                        <div class="icon">⏳</div>
+                        <span>点击上方按钮执行对比</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 执行时间 -->
+        <div class="diff-section" style="text-align: center;">
+            <div id="executeTime" style="color: var(--text-muted); font-size: 13px;">
+                执行时间: --
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 存储完整数据
+        let cachedData = { original: { pool: [], stocks: [] }, optimized: { pool: [], stocks: [] } };
+
+        async function executeCompare() {
+            const btn = document.getElementById('executeBtn');
+            btn.disabled = true;
+            btn.innerHTML = '⏳ 执行中...';
+
+            document.getElementById('originalContent').innerHTML = `
+                <div class="loading">
+                    <div class="loading-spinner"></div>
+                    <p>执行原版预选和选股...</p>
+                </div>
+            `;
+            document.getElementById('optimizedContent').innerHTML = `
+                <div class="loading">
+                    <div class="loading-spinner"></div>
+                    <p>执行优化版预选和选股...</p>
+                </div>
+            `;
+
+            try {
+                const resp = await fetch('/api/auction_compare_execute');
+                const data = await resp.json();
+
+                if (data.success) {
+                    cachedData = data;
+                    updateStats(data);
+                    renderVersion('original', data.original);
+                    renderVersion('optimized', data.optimized);
+                    renderConfirmCompare(data.original.stocks, data.optimized.stocks);
+
+                    let timeText = '执行时间: ' + data.execute_time;
+                    if (data.message) {
+                        timeText += '<br><span style="color: var(--accent-orange);">' + data.message + '</span>';
+                    }
+                    if (!data.in_trading_hours) {
+                        timeText += '<br><span style="color: var(--text-muted);">竞价确认将在明日9:25交易时段执行</span>';
+                    }
+                    document.getElementById('executeTime').innerHTML = timeText;
+                } else {
+                    alert('执行失败: ' + data.error);
+                    resetEmptyState();
+                }
+            } catch (e) {
+                alert('请求失败: ' + e.message);
+                resetEmptyState();
+            }
+
+            btn.disabled = false;
+            btn.innerHTML = '同时执行两个版本';
+        }
+
+        function updateStats(data) {
+            const comp = data.comparison;
+
+            const poolDiffEl = document.getElementById('poolDiff');
+            poolDiffEl.textContent = comp.pool_diff > 0 ? '+' + comp.pool_diff : comp.pool_diff;
+            poolDiffEl.className = 'value ' + (comp.pool_diff > 0 ? 'positive' : comp.pool_diff < 0 ? 'negative' : 'neutral');
+
+            const poolIncEl = document.getElementById('poolIncrease');
+            poolIncEl.textContent = comp.pool_increase_pct + '%';
+            poolIncEl.className = 'value ' + (comp.pool_increase_pct > 0 ? 'positive' : comp.pool_increase_pct < 0 ? 'negative' : 'neutral');
+
+            const stocksDiffEl = document.getElementById('stocksDiff');
+            stocksDiffEl.textContent = comp.stocks_diff > 0 ? '+' + comp.stocks_diff : comp.stocks_diff;
+            stocksDiffEl.className = 'value ' + (comp.stocks_diff > 0 ? 'positive' : comp.stocks_diff < 0 ? 'negative' : 'neutral');
+
+            const stocksIncEl = document.getElementById('stocksIncrease');
+            stocksIncEl.textContent = comp.stocks_increase_pct + '%';
+            stocksIncEl.className = 'value ' + (comp.stocks_increase_pct > 0 ? 'positive' : comp.stocks_increase_pct < 0 ? 'negative' : 'neutral');
+
+            document.getElementById('originalPoolCount').textContent = data.original.pool_count;
+            document.getElementById('originalStocksCount').textContent = data.original.stocks_count;
+            document.getElementById('optimizedPoolCount').textContent = data.optimized.pool_count;
+            document.getElementById('optimizedStocksCount').textContent = data.optimized.stocks_count;
+        }
+
+        // 渲染单个版本的候选池
+        function renderVersion(version, data) {
+            const container = document.getElementById(version + 'Content');
+            const SHOW_COUNT = 20; // 默认显示前20只
+
+            let html = '';
+
+            // 候选池标题
+            html += `<div class="section-label"><span class="dot pool"></span>候选池 (${data.pool_count}只)</div>`;
+
+            if (data.pool.length === 0) {
+                html += `
+                    <div class="empty-state" style="padding: 20px;">
+                        <span>候选池为空</span>
+                    </div>
+                `;
+            } else {
+                html += `<div class="stock-list" id="${version}PoolList">`;
+
+                data.pool.forEach((s, idx) => {
+                    const rankClass = idx < 3 ? `rank-${idx+1}` : 'rank-other';
+                    const hidden = idx >= SHOW_COUNT ? 'style="display:none;"' : '';
+
+                    html += `
+                        <div class="stock-item pool-item-${version}" data-idx="${idx}" ${hidden}>
+                            <div class="stock-rank ${rankClass}">${idx + 1}</div>
+                            <div class="stock-info">
+                                <div class="name">${s.name || '--'}${s.industry ? ' <span style="color:var(--text-muted);font-size:0.85em;font-weight:400;">· ' + s.industry + '</span>' : ''}</div>
+                                <div class="code">${s.code || '--'}</div>
+                            </div>
+                            <div class="stock-metrics">
+                                <div class="metric">
+                                    <div class="value">${s.change_5d != null ? s.change_5d : '--'}</div>
+                                    <div class="label">5日%</div>
+                                </div>
+                                <div class="metric">
+                                    <div class="value">${s.volume_ratio != null ? s.volume_ratio.toFixed(1) : '--'}</div>
+                                    <div class="label">量比</div>
+                                </div>
+                                <div class="metric">
+                                    <div class="value">${s.position_pct != null ? s.position_pct : '--'}</div>
+                                    <div class="label">位置%</div>
+                                </div>
+                            </div>
+                            <div class="stock-score">
+                                <div class="score-value" style="color: var(--accent-orange);">${s.score != null ? s.score.toFixed(0) : '--'}</div>
+                                <div class="score-label">预选分</div>
+                            </div>
+                        </div>
+                    `;
+                });
+
+                html += '</div>';
+
+                // 折叠按钮
+                if (data.pool.length > SHOW_COUNT) {
+                    html += `<button class="expand-btn" onclick="togglePoolExpand('${version}', ${data.pool.length}, ${SHOW_COUNT})">
+                        展开全部 ${data.pool.length} 只候选 (当前显示前 ${SHOW_COUNT} 只)
+                    </button>`;
+                }
+            }
+
+            container.innerHTML = html;
+        }
+
+        // 展开/折叠候选池
+        function togglePoolExpand(version, total, showCount) {
+            const items = document.querySelectorAll(`.pool-item-${version}`);
+            const btn = event.target;
+            const isExpanded = btn.dataset.expanded === 'true';
+
+            if (isExpanded) {
+                items.forEach((item, idx) => {
+                    if (idx >= showCount) item.style.display = 'none';
+                });
+                btn.textContent = `展开全部 ${total} 只候选 (当前显示前 ${showCount} 只)`;
+                btn.dataset.expanded = 'false';
+            } else {
+                items.forEach(item => item.style.display = '');
+                btn.textContent = `收起 (仅显示前 ${showCount} 只)`;
+                btn.dataset.expanded = 'true';
+            }
+        }
+
+        // 渲染竞价确认结果对齐对比
+        function renderConfirmCompare(originalStocks, optimizedStocks) {
+            const section = document.getElementById('confirmCompareSection');
+            const content = document.getElementById('confirmCompareContent');
+
+            const hasOriginal = originalStocks && originalStocks.length > 0;
+            const hasOptimized = optimizedStocks && optimizedStocks.length > 0;
+
+            if (!hasOriginal && !hasOptimized) {
+                section.style.display = 'none';
+                return;
+            }
+
+            section.style.display = '';
+
+            const maxCount = Math.max(originalStocks.length, optimizedStocks.length);
+            let html = '';
+
+            // 表头
+            html += `
+                <div class="confirm-row" style="margin-bottom: 4px;">
+                    <div style="text-align: center; font-size: 13px; font-weight: 600; color: #d4a017; padding: 4px;">
+                        原版 v1 (${originalStocks.length}只)
+                    </div>
+                    <div style="text-align: center; font-size: 13px; font-weight: 600; color: #cd7f32; padding: 4px;">
+                        优化版 v2 (${optimizedStocks.length}只)
+                    </div>
+                </div>
+            `;
+
+            for (let i = 0; i < maxCount; i++) {
+                const orig = i < originalStocks.length ? originalStocks[i] : null;
+                const opt = i < optimizedStocks.length ? optimizedStocks[i] : null;
+
+                html += '<div class="confirm-row">';
+
+                // 原版
+                html += renderConfirmStock(orig, i, 'original');
+
+                // 优化版
+                html += renderConfirmStock(opt, i, 'optimized');
+
+                html += '</div>';
+            }
+
+            content.innerHTML = html;
+        }
+
+        function renderConfirmStock(stock, idx, version) {
+            if (!stock) {
+                return '<div class="confirm-empty">-</div>';
+            }
+
+            const rankClass = idx === 0 ? 'gold' : idx === 1 ? 'silver' : idx === 2 ? 'bronze' : 'normal';
+            const gapDisplay = stock.gap_pct != null ? (stock.gap_pct * 100).toFixed(1) + '%' : '--';
+            const vrDisplay = stock.volume_ratio != null ? stock.volume_ratio.toFixed(1) : '--';
+            const amtDisplay = stock.auction_amount_pct != null ? (stock.auction_amount_pct * 100).toFixed(1) + '%' : '--';
+            const scoreDisplay = stock.confirm_score || (stock.score != null ? stock.score.toFixed(0) : '--');
+
+            let adviceHtml = '';
+            if (version === 'optimized' && stock.sell_advice && stock.sell_advice.summary) {
+                adviceHtml = `<span class="tag tag-advice">${stock.sell_advice.summary}</span>`;
+            }
+
+            return `
+                <div class="confirm-stock">
+                    <div class="rank ${rankClass}">${idx + 1}</div>
+                    <div class="info">
+                        <div class="name">${stock.name || '--'}${stock.industry ? ' <span style="color:var(--text-muted);font-size:0.85em;font-weight:400;">· ' + stock.industry + '</span>' : ''}</div>
+                        <div class="code">${stock.code || '--'}</div>
+                    </div>
+                    <div class="tags">
+                        <span class="tag tag-gap">高开 ${gapDisplay}</span>
+                        <span class="tag tag-vr">量比 ${vrDisplay}</span>
+                        <span class="tag tag-amount">竞价额 ${amtDisplay}</span>
+                        <span class="tag tag-score">${scoreDisplay}分</span>
+                        ${adviceHtml}
+                    </div>
+                </div>
+            `;
+        }
+
+        function resetEmptyState() {
+            document.getElementById('originalContent').innerHTML = `
+                <div class="empty-state">
+                    <div class="icon">⏳</div>
+                    <span>点击上方按钮执行对比</span>
+                </div>
+            `;
+            document.getElementById('optimizedContent').innerHTML = `
+                <div class="empty-state">
+                    <div class="icon">⏳</div>
+                    <span>点击上方按钮执行对比</span>
+                </div>
+            `;
+        }
+
+        // 页面加载时尝试获取缓存数据
+        async function loadCachedData() {
+            try {
+                const resp = await fetch('/api/auction_compare');
+                const data = await resp.json();
+
+                if (data.success && (data.original.pool_count > 0 || data.optimized.pool_count > 0)) {
+                    cachedData = data;
+                    if (data.original.pool_count > 0) {
+                        renderVersion('original', data.original);
+                        document.getElementById('originalPoolCount').textContent = data.original.pool_count;
+                        document.getElementById('originalStocksCount').textContent = data.original.stocks_count;
+                    }
+                    if (data.optimized.pool_count > 0) {
+                        renderVersion('optimized', data.optimized);
+                        document.getElementById('optimizedPoolCount').textContent = data.optimized.pool_count;
+                        document.getElementById('optimizedStocksCount').textContent = data.optimized.stocks_count;
+                    }
+                    renderConfirmCompare(data.original.stocks, data.optimized.stocks);
+                }
+            } catch (e) {
+                console.log('无缓存数据');
+            }
+        }
+
+        loadCachedData();
+    </script>
+</body>
+</html>

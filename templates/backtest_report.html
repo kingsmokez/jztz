@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>回测报告</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #2c3e50 0%, #3498db 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+        .header h1 { font-size: 32px; margin-bottom: 10px; }
+        .header p { opacity: 0.9; font-size: 16px; }
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            padding: 30px;
+            background: #f8f9fa;
+        }
+        .metric-card {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+            text-align: center;
+            transition: transform 0.3s;
+        }
+        .metric-card:hover { transform: translateY(-5px); }
+        .metric-card .label { color: #7f8c8d; font-size: 14px; margin-bottom: 10px; }
+        .metric-card .value { font-size: 32px; font-weight: bold; color: #2c3e50; }
+        .metric-card .value.positive { color: #e74c3c; }
+        .metric-card .value.negative { color: #27ae60; }
+        .metric-card .sub { font-size: 12px; color: #95a5a6; margin-top: 5px; }
+        .charts-section { padding: 30px; }
+        .chart-container {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+        }
+        .chart-title { font-size: 20px; font-weight: bold; margin-bottom: 20px; color: #2c3e50; }
+        .chart-wrapper { position: relative; height: 350px; }
+        .section { padding: 30px; border-top: 2px solid #ecf0f1; }
+        .section-title { font-size: 24px; font-weight: bold; margin-bottom: 20px; color: #2c3e50; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ecf0f1; }
+        th { background: #f8f9fa; font-weight: 600; color: #2c3e50; }
+        tr:hover { background: #f8f9fa; }
+        .badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+        .badge-buy { background: #fee; color: #c0392b; }
+        .badge-sell { background: #efe; color: #27ae60; }
+        .profit-positive { color: #c0392b; font-weight: 600; }
+        .profit-negative { color: #27ae60; font-weight: 600; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }
+        @media (max-width: 768px) { .grid-2 { grid-template-columns: 1fr; } }
+        .risk-item { display: flex; justify-content: space-between; padding: 15px; border-bottom: 1px solid #ecf0f1; }
+        .risk-item:last-child { border-bottom: none; }
+        .risk-label { color: #7f8c8d; }
+        .risk-value { font-weight: 600; color: #2c3e50; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 回测报告</h1>
+            <p id="reportTime">报告生成时间：--</p>
+        </div>
+
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="label">初始资金</div>
+                <div class="value" id="initialCapital">--</div>
+                <div class="sub">万元</div>
+            </div>
+            <div class="metric-card">
+                <div class="label">最终价值</div>
+                <div class="value" id="finalValue">--</div>
+                <div class="sub">万元</div>
+            </div>
+            <div class="metric-card">
+                <div class="label">总收益率</div>
+                <div class="value positive" id="totalReturn">--</div>
+                <div class="sub">%</div>
+            </div>
+            <div class="metric-card">
+                <div class="label">年化收益</div>
+                <div class="value positive" id="annualReturn">--</div>
+                <div class="sub">%</div>
+            </div>
+            <div class="metric-card">
+                <div class="label">夏普比率</div>
+                <div class="value" id="sharpeRatio">--</div>
+                <div class="sub">目标>1.5</div>
+            </div>
+            <div class="metric-card">
+                <div class="label">最大回撤</div>
+                <div class="value negative" id="maxDrawdown">--</div>
+                <div class="sub">目标<25%</div>
+            </div>
+            <div class="metric-card">
+                <div class="label">胜率</div>
+                <div class="value" id="winRate">--</div>
+                <div class="sub">目标>55%</div>
+            </div>
+            <div class="metric-card">
+                <div class="label">盈亏比</div>
+                <div class="value" id="profitLossRatio">--</div>
+                <div class="sub">目标>2</div>
+            </div>
+        </div>
+
+        <div class="charts-section">
+            <div class="chart-container">
+                <div class="chart-title">📈 收益曲线</div>
+                <div class="chart-wrapper">
+                    <canvas id="equityChart"></canvas>
+                </div>
+            </div>
+
+            <div class="chart-container">
+                <div class="chart-title">📉 回撤曲线</div>
+                <div class="chart-wrapper">
+                    <canvas id="drawdownChart"></canvas>
+                </div>
+            </div>
+
+            <div class="grid-2">
+                <div class="chart-container">
+                    <div class="chart-title">🎯 持仓分布</div>
+                    <div class="chart-wrapper">
+                        <canvas id="positionChart"></canvas>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <div class="chart-title">⚠️ 风险分析</div>
+                    <div id="riskAnalysis"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-title">📝 交易记录</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>日期</th>
+                        <th>类型</th>
+                        <th>股票</th>
+                        <th>数量</th>
+                        <th>价格</th>
+                        <th>成本</th>
+                        <th>盈亏</th>
+                        <th>理由</th>
+                    </tr>
+                </thead>
+                <tbody id="tradeTable"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // 加载回测数据
+        let reportData = null;
+        fetch('backtest_report.json?t=' + Date.now())
+            .then(r => r.json())
+            .then(data => {
+                reportData = data;
+                // 收集交易记录中所有股票代码，批量获取行业映射
+                const trades = data.trades || [];
+                const codeSet = new Set();
+                trades.forEach(t => { if (t && t.code) codeSet.add(String(t.code)); });
+                const codes = Array.from(codeSet);
+                if (codes.length === 0) {
+                    renderReport(data);
+                    return;
+                }
+                fetch(`/api/industries?codes=${encodeURIComponent(codes.join(','))}`)
+                    .then(r => r.json())
+                    .then(resp => {
+                        data.industryMap = (resp && resp.map) ? resp.map : {};
+                        renderReport(data);
+                    })
+                    .catch(err => {
+                        console.warn('获取行业映射失败，跳过:', err);
+                        data.industryMap = {};
+                        renderReport(data);
+                    });
+            })
+            .catch(err => {
+                console.error('加载数据失败:', err);
+                document.getElementById('reportTime').innerHTML = '❌ 加载数据失败';
+            });
+
+        function renderReport(data) {
+            const perf = data.performance || {};
+            const risk = data.risk_analysis || {};
+            
+            document.getElementById('reportTime').textContent = '报告生成时间：' + (data.report_time || '--');
+            
+            // 填充指标
+            document.getElementById('initialCapital').textContent = (perf.initial_capital / 10000).toFixed(0);
+            document.getElementById('finalValue').textContent = (perf.final_value / 10000).toFixed(0);
+            
+            const totalRet = perf.total_return || 0;
+            const annualRet = perf.annualized_return || 0;
+            const maxDD = perf.max_drawdown || 0;
+            
+            document.getElementById('totalReturn').textContent = (totalRet > 0 ? '+' : '') + totalRet.toFixed(2);
+            document.getElementById('annualReturn').textContent = (annualRet > 0 ? '+' : '') + annualRet.toFixed(2);
+            document.getElementById('sharpeRatio').textContent = (perf.sharpe_ratio || 0).toFixed(2);
+            document.getElementById('maxDrawdown').textContent = '-' + maxDD.toFixed(2);
+            document.getElementById('winRate').textContent = (perf.win_rate || 0).toFixed(1) + '%';
+            document.getElementById('profitLossRatio').textContent = (perf.profit_loss_ratio || 0).toFixed(2);
+            
+            // 颜色标记
+            if (totalRet >= 0) {
+                document.getElementById('totalReturn').classList.remove('negative');
+                document.getElementById('totalReturn').classList.add('positive');
+            }
+            
+            // 收益曲线
+            const equityCtx = document.getElementById('equityChart').getContext('2d');
+            const chartData = data.chart_data?.equity_curve || {dates: [], values: []};
+            const dates = chartData.dates || [];
+            const values = chartData.values || [];
+            
+            // 采样（最多显示 100 个点）
+            const sampleRate = Math.max(1, Math.floor(dates.length / 100));
+            const sampledDates = dates.filter((_, i) => i % sampleRate === 0);
+            const sampledValues = values.filter((_, i) => i % sampleRate === 0);
+            
+            new Chart(equityCtx, {
+                type: 'line',
+                data: {
+                    labels: sampledDates,
+                    datasets: [{
+                        label: '组合价值',
+                        data: sampledValues,
+                        borderColor: '#3498db',
+                        backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 0,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { display: true, grid: { display: false } },
+                        y: { display: true, grid: { color: '#f0f0f0' } }
+                    }
+                }
+            });
+            
+            // 回撤曲线
+            const drawdownCtx = document.getElementById('drawdownChart').getContext('2d');
+            const drawdownData = data.chart_data?.drawdown_curve || [];
+            const sampledDrawdown = drawdownData.filter((_, i) => i % sampleRate === 0);
+            
+            new Chart(drawdownCtx, {
+                type: 'line',
+                data: {
+                    labels: sampledDates,
+                    datasets: [{
+                        label: '回撤',
+                        data: sampledDrawdown,
+                        borderColor: '#e74c3c',
+                        backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 0,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { display: true, grid: { display: false } },
+                        y: { display: true, grid: { color: '#f0f0f0' }, reverse: false }
+                    }
+                }
+            });
+            
+            // 持仓分布
+            const positionCtx = document.getElementById('positionChart').getContext('2d');
+            const positions = data.chart_data?.position_distribution?.positions || [];
+            
+            new Chart(positionCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: positions.map(p => p.name),
+                    datasets: [{
+                        data: positions.map(p => p.weight),
+                        backgroundColor: [
+                            '#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b6',
+                            '#1abc9c', '#34495e', '#e67e22', '#95a5a6', '#d35400'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'right' }
+                    }
+                }
+            });
+            
+            // 风险分析
+            const riskHtml = `
+                <div class="risk-item">
+                    <span class="risk-label">波动率 (年化)</span>
+                    <span class="risk-value">${(perf.volatility || 0).toFixed(2)}%</span>
+                </div>
+                <div class="risk-item">
+                    <span class="risk-label">VaR (95%)</span>
+                    <span class="risk-value">${(perf.var_95 || 0).toFixed(2)}%</span>
+                </div>
+                <div class="risk-item">
+                    <span class="risk-label">总交易次数</span>
+                    <span class="risk-value">${perf.total_trades || 0}</span>
+                </div>
+                <div class="risk-item">
+                    <span class="risk-label">交易天数</span>
+                    <span class="risk-value">${perf.trading_days || 0}</span>
+                </div>
+                <div class="risk-item">
+                    <span class="risk-label">持仓数量</span>
+                    <span class="risk-value">${risk.num_positions || 0}</span>
+                </div>
+                <div class="risk-item">
+                    <span class="risk-label">最大单票仓位</span>
+                    <span class="risk-value">${(risk.max_position_weight || 0).toFixed(1)}%</span>
+                </div>
+            `;
+            document.getElementById('riskAnalysis').innerHTML = riskHtml;
+            
+            // 交易记录表格
+            const trades = data.trades || [];
+            const tradeTable = document.getElementById('tradeTable');
+            tradeTable.innerHTML = trades.slice(0, 50).map(t => `
+                <tr>
+                    <td>${t.date}</td>
+                    <td><span class="badge ${t.type === 'BUY' ? 'badge-buy' : 'badge-sell'}">${t.type === 'BUY' ? '买入' : '卖出'}</span></td>
+                    <td>${t.name}(${t.code})${data.industryMap && data.industryMap[t.code] ? ' <span style="color:var(--text-muted);font-size:0.85em;font-weight:400;">· ' + data.industryMap[t.code] + '</span>' : ''}</td>
+                    <td>${t.shares}</td>
+                    <td>¥${(t.price || 0).toFixed(2)}</td>
+                    <td>¥${(t.cost || 0).toFixed(2)}</td>
+                    <td class="${(t.profit_loss || 0) >= 0 ? 'profit-positive' : 'profit-negative'}">
+                        ${(t.profit_loss || 0) >= 0 ? '+' : ''}¥${(t.profit_loss || 0).toFixed(2)}
+                    </td>
+                    <td>${t.reason || '-'}</td>
+                </tr>
+            `).join('');
+        }
+    </script>
+</body>
+</html>

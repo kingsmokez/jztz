@@ -1,0 +1,63 @@
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = [".venv", "archive", "logs", "data"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "B", "UP"]
+ignore = ["E501", "B008", "B904"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+no_implicit_optional = true
+warn_unused_ignores = true
+exclude = ["archive/", "tests/"]
+
+[[tool.mypy.overrides]]
+module = ["modules.http_client", "modules.async_data_fetcher", "modules.async_client"]
+ignore_errors = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-p no:asyncio"
+markers = [
+    "e2e: end-to-end tests that need a running Flask server (deselect with -m 'not e2e')",
+    "slow: tests that take >1s (network, disk, etc.)",
+]
+
+[tool.coverage.run]
+branch = false
+source = ["modules", "routes"]
+omit = [
+    "modules/dexter/*",
+    "modules/dexter/**/*",
+    "archive/*",
+    "archive/**/*",
+    "tests/*",
+    # bcrypt 5.0.0 (Rust/PyO3) cannot be re-initialized under coverage's
+    # import instrumentation on Windows. Excluding the auth modules keeps
+    # bcrypt cached after the conftest pre-import and lets the rest of the
+    # suite measure coverage normally.
+    "modules/auth.py",
+    "routes/auth.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "\\.\\.\\.",
+]
+show_missing = true
+skip_covered = false
+precision = 1
+fail_under = 40

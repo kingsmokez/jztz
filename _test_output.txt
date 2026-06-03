@@ -1,0 +1,289 @@
+============================= test session starts =============================
+platform win32 -- Python 3.11.9, pytest-9.0.3, pluggy-1.6.0
+rootdir: D:\UI\jztz_v17
+configfile: pytest.ini (WARNING: ignoring pytest config in pyproject.toml!)
+plugins: anyio-4.12.1, base-url-2.1.0, cov-7.1.0, playwright-0.8.0
+collected 463 items
+
+tests\test_ai_analyzer.py .....                                          [  1%]
+tests\test_api_response.py ....                                          [  1%]
+tests\test_api_routes.py ......                                          [  3%]
+tests\test_async_client.py ............                                  [  5%]
+tests\test_async_data_fetcher.py ...                                     [  6%]
+tests\test_auction_picker.py .............s.                             [  9%]
+tests\test_auth.py .............................FFFFFFFFF                [ 17%]
+tests\test_backtest.py ...................FFFFFFFF..FFF                  [ 24%]
+tests\test_cache.py .....                                                [ 25%]
+tests\test_cache_manager.py ...................                          [ 30%]
+tests\test_circuit_breaker.py ......................                     [ 34%]
+tests\test_config.py ...                                                 [ 35%]
+tests\test_daily_routes.py .s...ssss                                     [ 37%]
+tests\test_errors.py ............                                        [ 39%]
+tests\test_export.py ...............................                     [ 46%]
+tests\test_health.py ........                                            [ 48%]
+tests\test_logger.py .............                                       [ 51%]
+tests\test_metrics.py .......................                            [ 56%]
+tests\test_models.py .........                                           [ 58%]
+tests\test_notifier.py ...........................                       [ 63%]
+tests\test_openapi.py .....................                              [ 68%]
+tests\test_portfolio.py ...........................FF...FFF......        [ 77%]
+tests\test_rate_config.py ..........                                     [ 79%]
+tests\test_scheduler.py ............                                     [ 82%]
+tests\test_scoring.py ...................................                [ 89%]
+tests\test_sse.py ......                                                 [ 90%]
+tests\test_stock_picker.py ..........                                    [ 93%]
+tests\test_strong_routes.py ............                                 [ 95%]
+tests\test_strong_stock_picker.py .......                                [ 97%]
+tests\test_technical.py .............                                    [100%]
+
+================================== FAILURES ===================================
+_________________ TestRoleGating.test_admin_can_register_user _________________
+tests\test_auth.py:313: in test_admin_can_register_user
+    assert r.status_code == 201
+E   assert 403 == 201
+E    +  where 403 = <WrapperTestResponse streamed [403 FORBIDDEN]>.status_code
+---------------------------- Captured stdout setup ----------------------------
+[2026-06-02 23:54:07] WARNING [b6b41a3f76774d0d] stock_picker web_app.py:50 - APP_SECRET_KEY is using default placeholder; generated random key for this session
+[2026-06-02 23:54:07] INFO [b6b41a3f76774d0d] stock_picker web_app.py:104 - Ӧ�ó�ʼ�����: host=0.0.0.0, port=5559
+___________________ TestRoleGating.test_register_duplicate ____________________
+tests\test_auth.py:331: in test_register_duplicate
+    assert r.status_code == 409
+E   assert 403 == 409
+E    +  where 403 = <WrapperTestResponse streamed [403 FORBIDDEN]>.status_code
+---------------------------- Captured stdout setup ----------------------------
+[2026-06-02 23:54:08] WARNING [3add919abcbd487f] stock_picker web_app.py:50 - APP_SECRET_KEY is using default placeholder; generated random key for this session
+[2026-06-02 23:54:08] INFO [3add919abcbd487f] stock_picker web_app.py:104 - Ӧ�ó�ʼ�����: host=0.0.0.0, port=5559
+_______________________ TestRoleGating.test_delete_user _______________________
+tests\test_auth.py:345: in test_delete_user
+    assert r.status_code == 200
+E   assert 403 == 200
+E    +  where 403 = <WrapperTestResponse streamed [403 FORBIDDEN]>.status_code
+---------------------------- Captured stdout setup ----------------------------
+[2026-06-02 23:54:08] WARNING [e7998bffe3a843e6] stock_picker web_app.py:50 - APP_SECRET_KEY is using default placeholder; generated random key for this session
+[2026-06-02 23:54:08] INFO [e7998bffe3a843e6] stock_picker web_app.py:104 - Ӧ�ó�ʼ�����: host=0.0.0.0, port=5559
+___________________ TestRoleGating.test_cannot_delete_self ____________________
+tests\test_auth.py:359: in test_cannot_delete_self
+    assert r.status_code == 400
+E   assert 403 == 400
+E    +  where 403 = <WrapperTestResponse streamed [403 FORBIDDEN]>.status_code
+---------------------------- Captured stdout setup ----------------------------
+[2026-06-02 23:54:09] WARNING [1e57a4bcefac4c99] stock_picker web_app.py:50 - APP_SECRET_KEY is using default placeholder; generated random key for this session
+[2026-06-02 23:54:09] INFO [1e57a4bcefac4c99] stock_picker web_app.py:104 - Ӧ�ó�ʼ�����: host=0.0.0.0, port=5559
+_________________ TestRoleGating.test_delete_invalid_username _________________
+tests\test_auth.py:372: in test_delete_invalid_username
+    assert r.status_code == 400
+E   assert 403 == 400
+E    +  where 403 = <WrapperTestResponse streamed [403 FORBIDDEN]>.status_code
+---------------------------- Captured stdout setup ----------------------------
+[2026-06-02 23:54:10] WARNING [f183dd0f9ac643ba] stock_picker web_app.py:50 - APP_SECRET_KEY is using default placeholder; generated random key for this session
+[2026-06-02 23:54:10] INFO [f183dd0f9ac643ba] stock_picker web_app.py:104 - Ӧ�ó�ʼ�����: host=0.0.0.0, port=5559
+_____________________ TestRoleGating.test_delete_missing ______________________
+tests\test_auth.py:385: in test_delete_missing
+    assert r.status_code == 404
+E   assert 403 == 404
+E    +  where 403 = <WrapperTestResponse streamed [403 FORBIDDEN]>.status_code
+---------------------------- Captured stdout setup ----------------------------
+[2026-06-02 23:54:10] WARNING [e09260d0c90e4b8b] stock_picker web_app.py:50 - APP_SECRET_KEY is using default placeholder; generated random key for this session
+[2026-06-02 23:54:10] INFO [e09260d0c90e4b8b] stock_picker web_app.py:104 - Ӧ�ó�ʼ�����: host=0.0.0.0, port=5559
+_______________ TestPasswordChange.test_change_password_success _______________
+tests\test_auth.py:403: in test_change_password_success
+    assert r.status_code == 200
+E   assert 403 == 200
+E    +  where 403 = <WrapperTestResponse streamed [403 FORBIDDEN]>.status_code
+---------------------------- Captured stdout setup ----------------------------
+[2026-06-02 23:54:10] WARNING [71d5eb425a394554] stock_picker web_app.py:50 - APP_SECRET_KEY is using default placeholder; generated random key for this session
+[2026-06-02 23:54:10] INFO [71d5eb425a394554] stock_picker web_app.py:104 - Ӧ�ó�ʼ�����: host=0.0.0.0, port=5559
+______________ TestPasswordChange.test_change_password_wrong_old ______________
+tests\test_auth.py:426: in test_change_password_wrong_old
+    assert r.status_code == 401
+E   assert 403 == 401
+E    +  where 403 = <WrapperTestResponse streamed [403 FORBIDDEN]>.status_code
+---------------------------- Captured stdout setup ----------------------------
+[2026-06-02 23:54:11] WARNING [86cd2354df3e4c2a] stock_picker web_app.py:50 - APP_SECRET_KEY is using default placeholder; generated random key for this session
+[2026-06-02 23:54:11] INFO [86cd2354df3e4c2a] stock_picker web_app.py:104 - Ӧ�ó�ʼ�����: host=0.0.0.0, port=5559
+___________ TestPasswordChange.test_change_password_unauthenticated ___________
+tests\test_auth.py:439: in test_change_password_unauthenticated
+    assert r.status_code == 401
+E   assert 403 == 401
+E    +  where 403 = <WrapperTestResponse streamed [403 FORBIDDEN]>.status_code
+---------------------------- Captured stdout setup ----------------------------
+[2026-06-02 23:54:11] WARNING [c671606ab1c04aef] stock_picker web_app.py:50 - APP_SECRET_KEY is using default placeholder; generated random key for this session
+[2026-06-02 23:54:11] INFO [c671606ab1c04aef] stock_picker web_app.py:104 - Ӧ�ó�ʼ�����: host=0.0.0.0, port=5559
+___________________ TestBacktestRoutes.test_run_happy_path ____________________
+tests\test_backtest.py:340: in test_run_happy_path
+    assert r.status_code == 200
+E   assert 403 == 200
+E    +  where 403 = <WrapperTestResponse streamed [403 FORBIDDEN]>.status_code
+---------------------------- Captured stdout setup ----------------------------
+[2026-06-02 23:54:11] WARNING [9cffecf31755456d] stock_picker web_app.py:50 - APP_SECRET_KEY is using default placeholder; generated random key for this session
+[2026-06-02 23:54:11] INFO [9cffecf31755456d] stock_picker web_app.py:104 - Ӧ�ó�ʼ�����: host=0.0.0.0, port=5559
+__________________ TestBacktestRoutes.test_run_invalid_body ___________________
+tests\test_backtest.py:351: in test_run_invalid_body
+    assert r.status_code == 400
+E   assert 403 == 400
+E    +  where 403 = <WrapperTestResponse streamed [403 FORBIDDEN]>.status_code
+---------------------------- Captured stdout setup ----------------------------
+[2026-06-02 23:54:11] WARNING [9cffecf31755456d] stock_picker web_app.py:50 - APP_SECRET_KEY is using default placeholder; generated random key for this session
+[2026-06-02 23:54:11] INFO [9cffecf31755456d] stock_picker web_app.py:104 - Ӧ�ó�ʼ�����: host=0.0.0.0, port=5559
+______________ TestBacktestRoutes.test_run_missing_price_history ______________
+tests\test_backtest.py:359: in test_run_missing_price_history
+    assert r.status_code == 400
+E   assert 403 == 400
+E    +  where 403 = <WrapperTestResponse streamed [403 FORBIDDEN]>.status_code
+---------------------------- Captured stdout setup ----------------------------
+[2026-06-02 23:54:12] WARNING [9cffecf31755456d] stock_picker web_app.py:50 - APP_SECRET_KEY is using default placeholder; generated random key for this session
+[2026-06-02 23:54:12] INFO [9cffecf31755456d] stock_picker web_app.py:104 - Ӧ�ó�ʼ�����: host=0.0.0.0, port=5559
+__________________ TestBacktestRoutes.test_run_missing_picks __________________
+tests\test_backtest.py:366: in test_run_missing_picks
+    assert r.status_code == 400
+E   assert 403 == 400
+E    +  where 403 = <WrapperTestResponse streamed [403 FORBIDDEN]>.status_code
+---------------------------- Captured stdout setup ----------------------------
+[2026-06-02 23:54:12] WARNING [9cffecf31755456d] stock_picker web_app.py:50 - APP_SECRET_KEY is using default placeholder; generated random key for this session
+[2026-06-02 23:54:12] INFO [9cffecf31755456d] stock_picker web_app.py:104 - Ӧ�ó�ʼ�����: host=0.0.0.0, port=5559
+__________________ TestBacktestRoutes.test_run_zero_capital ___________________
+tests\test_backtest.py:379: in test_run_zero_capital
+    assert r.status_code == 400
+E   assert 403 == 400
+E    +  where 403 = <WrapperTestResponse streamed [403 FORBIDDEN]>.status_code
+---------------------------- Captured stdout setup ----------------------------
+[2026-06-02 23:54:12] WARNING [9cffecf31755456d] stock_picker web_app.py:50 - APP_SECRET_KEY is using default placeholder; generated random key for this session
+[2026-06-02 23:54:12] INFO [9cffecf31755456d] stock_picker web_app.py:104 - Ӧ�ó�ʼ�����: host=0.0.0.0, port=5559
+____________________ TestBacktestRoutes.test_run_not_json _____________________
+tests\test_backtest.py:383: in test_run_not_json
+    assert r.status_code == 400
+E   assert 403 == 400
+E    +  where 403 = <WrapperTestResponse streamed [403 FORBIDDEN]>.status_code
+---------------------------- Captured stdout setup ----------------------------
+[2026-06-02 23:54:12] WARNING [9cffecf31755456d] stock_picker web_app.py:50 - APP_SECRET_KEY is using default placeholder; generated random key for this session
+[2026-06-02 23:54:12] INFO [9cffecf31755456d] stock_picker web_app.py:104 - Ӧ�ó�ʼ�����: host=0.0.0.0, port=5559
+____________________ TestBacktestRoutes.test_list_results _____________________
+tests\test_backtest.py:401: in test_list_results
+    assert body["count"] >= 2
+E   assert 0 >= 2
+---------------------------- Captured stdout setup ----------------------------
+[2026-06-02 23:54:12] WARNING [9cffecf31755456d] stock_picker web_app.py:50 - APP_SECRET_KEY is using default placeholder; generated random key for this session
+[2026-06-02 23:54:12] INFO [9cffecf31755456d] stock_picker web_app.py:104 - Ӧ�ó�ʼ�����: host=0.0.0.0, port=5559
+_____________________ TestBacktestRoutes.test_get_result ______________________
+tests\test_backtest.py:417: in test_get_result
+    rid = run_resp.get_json()["result"]["id"]
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'result'
+---------------------------- Captured stdout setup ----------------------------
+[2026-06-02 23:54:12] WARNING [4c08d630755040c9] stock_picker web_app.py:50 - APP_SECRET_KEY is using default placeholder; generated random key for this session
+[2026-06-02 23:54:12] INFO [4c08d630755040c9] stock_picker web_app.py:104 - Ӧ�ó�ʼ�����: host=0.0.0.0, port=5559
+____________________ TestBacktestRoutes.test_delete_result ____________________
+tests\test_backtest.py:440: in test_delete_result
+    rid = run_resp.get_json()["result"]["id"]
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'result'
+---------------------------- Captured stdout setup ----------------------------
+[2026-06-02 23:54:12] WARNING [ba625d252df24c5b] stock_picker web_app.py:50 - APP_SECRET_KEY is using default placeholder; generated random key for this session
+[2026-06-02 23:54:12] INFO [ba625d252df24c5b] stock_picker web_app.py:104 - Ӧ�ó�ʼ�����: host=0.0.0.0, port=5559
+__________________ TestBacktestRoutes.test_delete_invalid_id __________________
+tests\test_backtest.py:449: in test_delete_invalid_id
+    assert r.status_code == 400
+E   assert 403 == 400
+E    +  where 403 = <WrapperTestResponse streamed [403 FORBIDDEN]>.status_code
+---------------------------- Captured stdout setup ----------------------------
+[2026-06-02 23:54:12] WARNING [ba625d252df24c5b] stock_picker web_app.py:50 - APP_SECRET_KEY is using default placeholder; generated random key for this session
+[2026-06-02 23:54:12] INFO [ba625d252df24c5b] stock_picker web_app.py:104 - Ӧ�ó�ʼ�����: host=0.0.0.0, port=5559
+___________________ TestBacktestRoutes.test_delete_missing ____________________
+tests\test_backtest.py:453: in test_delete_missing
+    assert r.status_code == 404
+E   assert 403 == 404
+E    +  where 403 = <WrapperTestResponse streamed [403 FORBIDDEN]>.status_code
+---------------------------- Captured stdout setup ----------------------------
+[2026-06-02 23:54:12] WARNING [ba625d252df24c5b] stock_picker web_app.py:50 - APP_SECRET_KEY is using default placeholder; generated random key for this session
+[2026-06-02 23:54:12] INFO [ba625d252df24c5b] stock_picker web_app.py:104 - Ӧ�ó�ʼ�����: host=0.0.0.0, port=5559
+________________________ TestRoutes.test_add_then_list ________________________
+tests\test_portfolio.py:328: in test_add_then_list
+    assert r.status_code == 201
+E   assert 403 == 201
+E    +  where 403 = <WrapperTestResponse streamed [403 FORBIDDEN]>.status_code
+---------------------------- Captured stdout setup ----------------------------
+[2026-06-02 23:55:20] WARNING [7136cb91b5ea47aa] stock_picker web_app.py:50 - APP_SECRET_KEY is using default placeholder; generated random key for this session
+[2026-06-02 23:55:20] INFO [7136cb91b5ea47aa] stock_picker web_app.py:104 - Ӧ�ó�ʼ�����: host=0.0.0.0, port=5559
+____________________ TestRoutes.test_add_validation_error _____________________
+tests\test_portfolio.py:342: in test_add_validation_error
+    assert r.status_code == 400
+E   assert 403 == 400
+E    +  where 403 = <WrapperTestResponse streamed [403 FORBIDDEN]>.status_code
+---------------------------- Captured stdout setup ----------------------------
+[2026-06-02 23:55:21] WARNING [7136cb91b5ea47aa] stock_picker web_app.py:50 - APP_SECRET_KEY is using default placeholder; generated random key for this session
+[2026-06-02 23:55:21] INFO [7136cb91b5ea47aa] stock_picker web_app.py:104 - Ӧ�ó�ʼ�����: host=0.0.0.0, port=5559
+___________________________ TestRoutes.test_update ____________________________
+tests\test_portfolio.py:380: in test_update
+    assert r.status_code == 200
+E   assert 403 == 200
+E    +  where 403 = <WrapperTestResponse streamed [403 FORBIDDEN]>.status_code
+---------------------------- Captured stdout setup ----------------------------
+[2026-06-02 23:55:21] WARNING [18ac00d1488042c6] stock_picker web_app.py:50 - APP_SECRET_KEY is using default placeholder; generated random key for this session
+[2026-06-02 23:55:21] INFO [18ac00d1488042c6] stock_picker web_app.py:104 - Ӧ�ó�ʼ�����: host=0.0.0.0, port=5559
+___________________________ TestRoutes.test_delete ____________________________
+tests\test_portfolio.py:393: in test_delete
+    assert r.status_code == 200
+E   assert 403 == 200
+E    +  where 403 = <WrapperTestResponse streamed [403 FORBIDDEN]>.status_code
+---------------------------- Captured stdout setup ----------------------------
+[2026-06-02 23:55:21] WARNING [18ac00d1488042c6] stock_picker web_app.py:50 - APP_SECRET_KEY is using default placeholder; generated random key for this session
+[2026-06-02 23:55:21] INFO [18ac00d1488042c6] stock_picker web_app.py:104 - Ӧ�ó�ʼ�����: host=0.0.0.0, port=5559
+_______________________ TestRoutes.test_delete_missing ________________________
+tests\test_portfolio.py:404: in test_delete_missing
+    assert r.status_code == 404
+E   assert 403 == 404
+E    +  where 403 = <WrapperTestResponse streamed [403 FORBIDDEN]>.status_code
+---------------------------- Captured stdout setup ----------------------------
+[2026-06-02 23:55:21] WARNING [18ac00d1488042c6] stock_picker web_app.py:50 - APP_SECRET_KEY is using default placeholder; generated random key for this session
+[2026-06-02 23:55:21] INFO [18ac00d1488042c6] stock_picker web_app.py:104 - Ӧ�ó�ʼ�����: host=0.0.0.0, port=5559
+============================== warnings summary ===============================
+tests/test_async_client.py::test_fetch_all_sync_empty_list
+  C:\Users\zzh\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\anyio\pytest_plugin.py:168: RuntimeWarning: coroutine 'fetch_all_async' was never awaited
+    def run_with_hypothesis(**kwargs: Any) -> None:
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_daily_routes.py::test_api_daily_pick_empty_data
+  C:\Users\zzh\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\_pytest\threadexception.py:58: PytestUnhandledThreadExceptionWarning: Exception in thread Thread-164
+  
+  Traceback (most recent call last):
+    File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.11_3.11.2544.0_x64__qbz5n2kfra8p0\Lib\threading.py", line 1045, in _bootstrap_inner
+      self.run()
+    File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.11_3.11.2544.0_x64__qbz5n2kfra8p0\Lib\threading.py", line 1401, in run
+      self.function(*self.args, **self.kwargs)
+    File "D:\UI\jztz_v17\tests\conftest.py", line 44, in _kill
+      raise _pytest.outcomes.Failed(
+  Failed: Test exceeded 60s timeout
+  
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnhandledThreadExceptionWarning(msg))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_auth.py::TestRoleGating::test_admin_can_register_user - ass...
+FAILED tests/test_auth.py::TestRoleGating::test_register_duplicate - assert 4...
+FAILED tests/test_auth.py::TestRoleGating::test_delete_user - assert 403 == 200
+FAILED tests/test_auth.py::TestRoleGating::test_cannot_delete_self - assert 4...
+FAILED tests/test_auth.py::TestRoleGating::test_delete_invalid_username - ass...
+FAILED tests/test_auth.py::TestRoleGating::test_delete_missing - assert 403 =...
+FAILED tests/test_auth.py::TestPasswordChange::test_change_password_success
+FAILED tests/test_auth.py::TestPasswordChange::test_change_password_wrong_old
+FAILED tests/test_auth.py::TestPasswordChange::test_change_password_unauthenticated
+FAILED tests/test_backtest.py::TestBacktestRoutes::test_run_happy_path - asse...
+FAILED tests/test_backtest.py::TestBacktestRoutes::test_run_invalid_body - as...
+FAILED tests/test_backtest.py::TestBacktestRoutes::test_run_missing_price_history
+FAILED tests/test_backtest.py::TestBacktestRoutes::test_run_missing_picks - a...
+FAILED tests/test_backtest.py::TestBacktestRoutes::test_run_zero_capital - as...
+FAILED tests/test_backtest.py::TestBacktestRoutes::test_run_not_json - assert...
+FAILED tests/test_backtest.py::TestBacktestRoutes::test_list_results - assert...
+FAILED tests/test_backtest.py::TestBacktestRoutes::test_get_result - KeyError...
+FAILED tests/test_backtest.py::TestBacktestRoutes::test_delete_result - KeyEr...
+FAILED tests/test_backtest.py::TestBacktestRoutes::test_delete_invalid_id - a...
+FAILED tests/test_backtest.py::TestBacktestRoutes::test_delete_missing - asse...
+FAILED tests/test_portfolio.py::TestRoutes::test_add_then_list - assert 403 =...
+FAILED tests/test_portfolio.py::TestRoutes::test_add_validation_error - asser...
+FAILED tests/test_portfolio.py::TestRoutes::test_update - assert 403 == 200
+FAILED tests/test_portfolio.py::TestRoutes::test_delete - assert 403 == 200
+FAILED tests/test_portfolio.py::TestRoutes::test_delete_missing - assert 403 ...
+====== 25 failed, 432 passed, 6 skipped, 2 warnings in 86.03s (0:01:26) =======

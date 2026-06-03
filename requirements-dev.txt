@@ -1,0 +1,4 @@
+-r requirements.txt
+mypy==1.11.2
+ruff==0.6.9
+playwright==1.47.0

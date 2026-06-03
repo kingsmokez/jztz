@@ -1,0 +1,57 @@
+# Python / VCS
+__pycache__
+*.py[cod]
+*.so
+*.egg-info/
+*.egg
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.venv/
+venv/
+env/
+build/
+dist/
+.eggs/
+
+# VCS
+.git/
+.gitignore
+.gitattributes
+
+# Secrets / local config
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+secrets/
+
+# Runtime artefacts
+logs/
+data/
+backtest_results/
+playwright-report/
+test-results/
+.cache/
+
+# Editor / OS noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Project meta that's not needed in the image
+.omo/
+.omo/
+*.md.bak
+archive/
+
+# Test-only artefacts
+playwright.config.py
+tests/

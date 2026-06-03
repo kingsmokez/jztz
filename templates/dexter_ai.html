@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>Dexter · 金融研究</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #161B22;
+            --bg-secondary: #0D1117;
+            --bg-card: #21262D;
+            --bg-card-hover: #30363D;
+            --bg-input: #161B22;
+            --border: #30363D;
+            --border-light: #3D444D;
+            --text-primary: #E6EDF3;
+            --text-secondary: #8B949E;
+            --text-muted: #656D76;
+            --accent: #58A6FF;
+            --accent-hover: #388BFD;
+            --accent-dim: rgba(88,166,255,0.15);
+            --green: #3FB950;
+            --green-dim: rgba(63,185,80,0.15);
+            --red: #F85149;
+            --red-dim: rgba(248,81,73,0.15);
+            --orange: #D29922;
+            --orange-dim: rgba(210,153,34,0.15);
+            --purple: #BC8CFF;
+            --purple-dim: rgba(188,140,255,0.15);
+            --accent-gradient: linear-gradient(135deg, #58A6FF 0%, #00D4AA 100%);
+            --orange-gradient: linear-gradient(135deg, #FF9F0A 0%, #F59E0B 100%);
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 16px;
+            --shadow-md: 0 4px 16px rgba(0,0,0,0.4);
+            --shadow-lg: 0 8px 32px rgba(0,0,0,0.5);
+            --font-sans: 'Inter', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
+            --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: var(--font-sans);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .navbar {
+            background: #010409;
+            padding: 0 24px;
+            height: 52px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--border);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .nav-brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 15px; color: #fff; text-decoration: none; }
+        .nav-logo { width: 32px; height: 32px; background: var(--accent-gradient); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; }
+        .nav-back { color: var(--text-secondary); text-decoration: none; font-size: 13px; padding: 6px 12px; border-radius: var(--radius-sm); transition: all 0.2s; }
+        .nav-back:hover { color: #fff; background: rgba(255,255,255,0.08); }
+        .nav-actions { display: flex; align-items: center; gap: 8px; }
+        .nav-btn {
+            background: var(--bg-card); border: 1px solid var(--border); color: var(--text-secondary);
+            padding: 5px 12px; border-radius: var(--radius-sm); font-size: 12px; cursor: pointer;
+            transition: all 0.2s; font-family: var(--font-sans); white-space: nowrap;
+        }
+        .nav-btn:hover { color: #fff; background: var(--bg-card-hover); }
+        .nav-btn.active { border-color: var(--accent); color: var(--accent); }
+        .nav-btn.danger:hover { color: var(--red); border-color: var(--red); }
+        .status-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 4px; }
+        .status-dot.online { background: var(--green); box-shadow: 0 0 6px var(--green); }
+        .status-dot.offline { background: var(--red); }
+
+        .config-panel {
+            display: none;
+            background: var(--bg-primary);
+            border-bottom: 1px solid var(--border);
+            padding: 16px 24px;
+            animation: slideDown 0.2s ease;
+        }
+        .config-panel.show { display: block; }
+        @keyframes slideDown { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+        .config-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        .config-item { display: flex; flex-direction: column; gap: 4px; }
+        .config-item label { font-size: 12px; color: var(--text-secondary); font-weight: 500; }
+        .config-item input, .config-item select {
+            background: var(--bg-card); border: 1px solid var(--border);
+            color: var(--text-primary); padding: 8px 12px; border-radius: var(--radius-sm);
+            font-size: 13px; font-family: var(--font-sans); outline: none;
+            transition: border-color 0.2s;
+        }
+        .config-item input:focus, .config-item select:focus { border-color: var(--accent); }
+        .config-item input::placeholder { color: var(--text-muted); }
+        .config-item input.valid { border-color: var(--green); }
+        .config-item input.invalid { border-color: var(--red); }
+        .config-actions { display: flex; align-items: flex-end; gap: 8px; }
+        .config-actions .nav-btn { padding: 8px 14px; font-size: 13px; }
+        .config-presets { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; max-width: 900px; margin-left: auto; margin-right: auto; }
+        .preset-chip {
+            background: var(--bg-card); border: 1px solid var(--border); color: var(--text-secondary);
+            padding: 6px 12px; border-radius: 14px; font-size: 12px; cursor: pointer;
+            transition: all 0.2s; font-family: var(--font-sans);
+        }
+        .preset-chip:hover { border-color: var(--accent); color: var(--accent); }
+        .config-status { font-size: 12px; margin-top: 8px; max-width: 900px; margin-left: auto; margin-right: auto; }
+        .config-status.testing { color: var(--orange); }
+        .config-status.success { color: var(--green); }
+        .config-status.fail { color: var(--red); }
+
+        .main { flex: 1; display: flex; flex-direction: column; max-width: 960px; width: 100%; margin: 0 auto; padding: 0; }
+        .chat-area { flex: 1; overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; gap: 20px; scroll-behavior: smooth; }
+
+        .welcome { text-align: center; padding: 60px 20px 30px; }
+        .welcome h1 { font-size: 32px; font-weight: 700; background: var(--accent-gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; margin-bottom: 10px; letter-spacing: -0.5px; }
+        .welcome p { color: var(--text-secondary); font-size: 14px; line-height: 1.7; max-width: 520px; margin: 0 auto 8px; }
+        .welcome .hint { font-size: 12px; color: var(--text-muted); margin-bottom: 24px; }
+        .suggestions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+        .suggestion-chip {
+            background: var(--bg-card); border: 1px solid var(--border); color: var(--text-secondary);
+            padding: 8px 16px; border-radius: 20px; font-size: 13px; cursor: pointer;
+            transition: all 0.2s; white-space: nowrap; font-family: var(--font-sans);
+        }
+        .suggestion-chip:hover { background: var(--bg-card-hover); color: var(--text-primary); border-color: var(--accent); }
+
+        .message { display: flex; gap: 12px; max-width: 100%; animation: fadeIn 0.3s ease; }
+        .message.user { flex-direction: row-reverse; }
+        .message.error .msg-content { background: var(--red-dim) !important; border: 1px solid rgba(248,81,73,0.3); }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+        .msg-avatar {
+            width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center;
+            justify-content: center; font-size: 15px; flex-shrink: 0;
+        }
+        .msg-avatar.assistant { background: var(--accent-gradient); }
+        .msg-avatar.user { background: var(--orange-gradient); }
+        .msg-avatar.error { background: var(--red); }
+
+        .msg-content {
+            background: var(--bg-card); border-radius: var(--radius-md); padding: 16px 20px;
+            font-size: 14px; line-height: 1.75; max-width: 85%; overflow-x: auto;
+            border: 1px solid var(--border); position: relative;
+        }
+        .message.user .msg-content { background: #1a3a5c; border-color: rgba(88,166,255,0.2); }
+
+        .msg-content h1 { font-size: 18px; font-weight: 700; margin: 16px 0 8px; color: #fff; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+        .msg-content h2 { font-size: 16px; font-weight: 600; margin: 14px 0 6px; color: #fff; }
+        .msg-content h3 { font-size: 15px; font-weight: 600; margin: 10px 0 4px; color: var(--text-primary); }
+        .msg-content h1:first-child, .msg-content h2:first-child, .msg-content h3:first-child { margin-top: 0; }
+        .msg-content p { margin: 6px 0; }
+        .msg-content p:first-child { margin-top: 0; }
+        .msg-content p:last-child { margin-bottom: 0; }
+        .msg-content strong { color: var(--accent); font-weight: 600; }
+        .msg-content em { color: var(--text-secondary); font-style: italic; }
+        .msg-content a { color: var(--accent); text-decoration: none; }
+        .msg-content a:hover { text-decoration: underline; }
+        .msg-content ul, .msg-content ol { padding-left: 22px; margin: 6px 0; }
+        .msg-content li { margin: 3px 0; }
+        .msg-content li::marker { color: var(--accent); }
+        .msg-content hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
+
+        .msg-content table {
+            width: 100%; border-collapse: separate; border-spacing: 0;
+            margin: 10px 0; font-size: 13px; border-radius: var(--radius-sm);
+            overflow: hidden; border: 1px solid var(--border);
+        }
+        .msg-content th {
+            background: rgba(88,166,255,0.08); font-weight: 600; color: var(--text-primary);
+            padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border);
+            white-space: nowrap;
+        }
+        .msg-content td {
+            padding: 7px 12px; border-bottom: 1px solid rgba(48,54,61,0.5);
+            color: var(--text-secondary);
+        }
+        .msg-content tr:last-child td { border-bottom: none; }
+        .msg-content tr:hover td { background: rgba(88,166,255,0.04); }
+
+        .msg-content code {
+            background: rgba(88,166,255,0.1); padding: 2px 6px; border-radius: 4px;
+            font-size: 13px; font-family: var(--font-mono); color: var(--accent);
+        }
+        .msg-content pre {
+            background: #0D1117; padding: 14px; border-radius: var(--radius-sm);
+            overflow-x: auto; font-size: 13px; margin: 8px 0; border: 1px solid var(--border);
+        }
+        .msg-content pre code { background: none; padding: 0; color: var(--text-primary); }
+
+        .msg-content blockquote {
+            border-left: 3px solid var(--accent); padding: 8px 14px; margin: 8px 0;
+            background: var(--accent-dim); border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+            color: var(--text-secondary); font-size: 13px;
+        }
+
+        .copy-btn {
+            position: absolute; top: 8px; right: 8px; background: var(--bg-card-hover);
+            border: 1px solid var(--border); color: var(--text-muted); padding: 4px 8px;
+            border-radius: 6px; font-size: 11px; cursor: pointer; opacity: 0;
+            transition: all 0.2s; font-family: var(--font-sans); z-index: 2;
+        }
+        .msg-content:hover .copy-btn { opacity: 1; }
+        .copy-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+        .progress-bar {
+            display: flex; align-items: flex-start; gap: 10px; padding: 12px 16px;
+            background: var(--bg-card); border-radius: var(--radius-md);
+            border: 1px solid var(--border); margin: 4px 0;
+        }
+        .progress-spinner {
+            width: 18px; height: 18px; border: 2px solid var(--border);
+            border-top-color: var(--accent); border-radius: 50%;
+            animation: spin 0.8s linear infinite; flex-shrink: 0; margin-top: 2px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .progress-text { font-size: 13px; color: var(--text-secondary); }
+        .progress-steps { display: flex; gap: 4px; margin-top: 6px; }
+        .progress-step {
+            width: 24px; height: 3px; border-radius: 2px; background: var(--border);
+            transition: background 0.3s;
+        }
+        .progress-step.done { background: var(--accent); }
+        .progress-step.active { background: var(--accent); animation: pulse 1s ease-in-out infinite; }
+        @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
+        .tool-list { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+        .tool-item {
+            display: flex; align-items: center; gap: 6px; font-size: 12px;
+            color: var(--text-muted); padding: 3px 0;
+        }
+        .tool-item .tool-icon { font-size: 11px; }
+        .tool-item .tool-icon.done { color: var(--green); }
+        .tool-item .tool-icon.running { color: var(--orange); animation: spin 1s linear infinite; display: inline-block; }
+
+        .input-area {
+            padding: 16px 24px 20px; border-top: 1px solid var(--border);
+            background: #0D1117; position: sticky; bottom: 0;
+        }
+        .input-row { display: flex; gap: 10px; max-width: 960px; margin: 0 auto; }
+        .input-box {
+            flex: 1; background: var(--bg-input); border: 1px solid var(--border);
+            border-radius: var(--radius-md); padding: 10px 16px; color: var(--text-primary);
+            font-size: 14px; font-family: var(--font-sans); resize: none; min-height: 44px;
+            max-height: 120px; outline: none; transition: border-color 0.2s;
+        }
+        .input-box:focus { border-color: var(--accent); }
+        .input-box::placeholder { color: var(--text-muted); }
+        .send-btn {
+            background: var(--accent-gradient); color: #fff; border: none;
+            border-radius: var(--radius-md); padding: 10px 20px; font-size: 14px;
+            font-weight: 600; cursor: pointer; transition: all 0.2s; white-space: nowrap;
+            font-family: var(--font-sans);
+        }
+        .send-btn:hover { opacity: 0.9; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(88,166,255,0.3); }
+        .send-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
+        .input-hint { font-size: 11px; color: var(--text-muted); margin-top: 8px; text-align: center; }
+
+        .toast-container { position: fixed; top: 60px; right: 20px; z-index: 1000; display: flex; flex-direction: column; gap: 8px; }
+        .toast {
+            padding: 10px 16px; border-radius: var(--radius-sm); font-size: 13px;
+            color: #fff; animation: toastIn 0.3s ease; min-width: 200px; max-width: 400px;
+            box-shadow: var(--shadow-lg); word-break: break-word;
+        }
+        .toast.success { background: #1a6b2a; border: 1px solid var(--green); }
+        .toast.error { background: #6b1a1a; border: 1px solid var(--red); }
+        .toast.info { background: #1a3a6b; border: 1px solid var(--accent); }
+        .toast.warning { background: #6b4a1a; border: 1px solid var(--orange); }
+        @keyframes toastIn { from { opacity: 0; transform: translateX(40px); } to { opacity: 1; transform: translateX(0); } }
+        @keyframes toastOut { from { opacity: 1; } to { opacity: 0; transform: translateX(40px); } }
+
+        .chat-area::-webkit-scrollbar { width: 6px; }
+        .chat-area::-webkit-scrollbar-track { background: transparent; }
+        .chat-area::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        .chat-area::-webkit-scrollbar-thumb:hover { background: var(--border-light); }
+
+        @media (max-width: 768px) {
+            .navbar { padding: 0 12px; }
+            .main { max-width: 100%; }
+            .chat-area { padding: 12px; }
+            .msg-content { max-width: 92%; padding: 12px 14px; }
+            .input-area { padding: 12px; }
+            .config-grid { grid-template-columns: 1fr; }
+            .nav-actions .nav-btn.hide-mobile { display: none; }
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <a href="/dexter" class="nav-brand">
+            <span class="nav-logo">🧠</span>
+            Dexter
+        </a>
+        <div class="nav-actions">
+            <span style="font-size:12px;color:var(--text-secondary);">
+                <span class="status-dot" id="statusDot"></span>
+                <span id="statusText">检测中...</span>
+            </span>
+            <button class="nav-btn danger hide-mobile" onclick="clearChat()" title="清空对话">🗑️ 清空</button>
+            <button class="nav-btn" id="configToggle" onclick="toggleConfig()" title="模型配置">⚙️ 设置</button>
+            <a href="/cb_arbitrage" class="nav-back" title="可转债套利">💱 套利</a>
+            <a href="/" class="nav-back">← 主页</a>
+        </div>
+    </nav>
+
+    <div class="config-panel" id="configPanel">
+        <div class="config-grid">
+            <div class="config-item">
+                <label>API 地址 (Base URL)</label>
+                <input type="text" id="cfgBaseUrl" placeholder="https://api.deepseek.com" autocomplete="off">
+            </div>
+            <div class="config-item">
+                <label>API Key</label>
+                <input type="password" id="cfgApiKey" placeholder="sk-xxxx" autocomplete="off">
+            </div>
+            <div class="config-item">
+                <label>模型名称 (Model)</label>
+                <input type="text" id="cfgModel" placeholder="deepseek-v4-flash" autocomplete="off">
+            </div>
+            <div class="config-actions">
+                <button class="nav-btn" onclick="saveConfig()" style="background:var(--accent);color:#fff;border-color:var(--accent);">💾 保存</button>
+                <button class="nav-btn" onclick="testConnection()">🔌 测试连接</button>
+                <button class="nav-btn" onclick="resetConfig()">重置</button>
+            </div>
+        </div>
+        <div class="config-presets">
+            <span style="font-size:11px;color:var(--text-muted);margin-right:8px;">快捷预设:</span>
+            <span class="preset-chip" onclick="applyPreset('deepseek')">DeepSeek V4</span>
+            <span class="preset-chip" onclick="applyPreset('openai')">OpenAI</span>
+            <span class="preset-chip" onclick="applyPreset('alibaba')">通义千问</span>
+            <span class="preset-chip" onclick="applyPreset('moonshot')">Moonshot</span>
+            <span class="preset-chip" onclick="applyPreset('ollama')">Ollama (本地)</span>
+        </div>
+        <div class="config-status" id="configStatus"></div>
+    </div>
+
+    <div class="main">
+        <div class="chat-area" id="chatArea">
+            <div class="welcome" id="welcome">
+                <h1>Dexter</h1>
+                <p>中国 A 股市场分析工具，基于价值投资理念，支持个股、ETF分析、标的筛选、估值计算。</p>
+                <p class="hint">使用前请先点击右上角 <b style="color:var(--accent);">⚙️ 设置</b> 配置你的大模型 API</p>
+                <div class="suggestions">
+                    <span class="suggestion-chip" onclick="askSuggestion(this)">分析 贵州茅台</span>
+                    <span class="suggestion-chip" onclick="askSuggestion(this)">沪深300ETF 行情</span>
+                    <span class="suggestion-chip" onclick="askSuggestion(this)">宁德时代 DCF 估值</span>
+                    <span class="suggestion-chip" onclick="askSuggestion(this)">招商银行 财务分析</span>
+                    <span class="suggestion-chip" onclick="askSuggestion(this)">半导体ETF 筛选</span>
+                    <span class="suggestion-chip" onclick="askSuggestion(this)">市盈率低于15的股票</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="input-area">
+            <div class="input-row">
+                <textarea class="input-box" id="queryInput" placeholder="输入你的投资问题，例如：分析贵州茅台的投资价值..." rows="1" onkeydown="handleKeyDown(event)"></textarea>
+                <button class="send-btn" id="sendBtn" onclick="sendQuery()">发送</button>
+            </div>
+            <div class="input-hint">按 Enter 发送，Shift+Enter 换行 | <span id="cfgSummary" style="color:var(--accent);"></span></div>
+        </div>
+    </div>
+
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script>
+        const STORAGE_KEY = 'dexter_model_config';
+        const PRESETS = {
+            deepseek:  { base_url: 'https://api.deepseek.com', api_key: '', model: 'deepseek-v4-flash' },
+            openai:    { base_url: 'https://api.openai.com/v1', api_key: '', model: 'gpt-4o' },
+            alibaba:   { base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', api_key: '', model: 'qwen-plus' },
+            moonshot:  { base_url: 'https://api.moonshot.cn/v1', api_key: '', model: 'moonshot-v1-8k' },
+            ollama:    { base_url: 'http://127.0.0.1:11434/v1', api_key: '', model: 'qwen2.5:7b' },
+        };
+
+        const TOOL_NAMES = {
+            search_china_stock: '股票搜索',
+            get_china_stock_quote: '股票行情',
+            get_china_stock_kline: 'K线数据',
+            get_china_stock_financial: '财务数据',
+            search_china_etf: 'ETF搜索',
+            get_china_etf_quote: 'ETF行情',
+            get_convertible_bonds: '可转债数据',
+            web_search: '网络搜索',
+            web_fetch: '网页抓取',
+            memory_search: '记忆搜索',
+            run_stock_picker: '选股',
+            skill: '技能调用',
+        };
+
+        function loadConfig() {
+            try {
+                const raw = localStorage.getItem(STORAGE_KEY);
+                if (raw) return JSON.parse(raw);
+            } catch (e) {}
+            return { base_url: '', api_key: '', model: '' };
+        }
+
+        function saveConfigToStorage(cfg) {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
+        }
+
+        function getConfig() {
+            return loadConfig();
+        }
+
+        function initConfigUI() {
+            const cfg = loadConfig();
+            document.getElementById('cfgBaseUrl').value = cfg.base_url || '';
+            document.getElementById('cfgApiKey').value = cfg.api_key || '';
+            document.getElementById('cfgModel').value = cfg.model || '';
+            updateCfgSummary();
+        }
+
+        function updateCfgSummary() {
+            const cfg = loadConfig();
+            const el = document.getElementById('cfgSummary');
+            if (cfg.model) {
+                el.textContent = `模型: ${cfg.model}`;
+                el.style.color = cfg.api_key ? 'var(--accent)' : 'var(--orange)';
+            } else {
+                el.textContent = '未配置模型';
+                el.style.color = 'var(--red)';
+            }
+        }
+
+        function saveConfig() {
+            const cfg = {
+                base_url: document.getElementById('cfgBaseUrl').value.trim(),
+                api_key: document.getElementById('cfgApiKey').value.trim(),
+                model: document.getElementById('cfgModel').value.trim(),
+            };
+            if (!cfg.base_url && !cfg.api_key) {
+                showToast('请至少填写 API 地址或 API Key', 'warning');
+                return;
+            }
+            saveConfigToStorage(cfg);
+            updateCfgSummary();
+            document.getElementById('configPanel').classList.remove('show');
+            document.getElementById('configToggle').classList.remove('active');
+            showToast('配置已保存', 'success');
+        }
+
+        function resetConfig() {
+            localStorage.removeItem(STORAGE_KEY);
+            initConfigUI();
+            document.getElementById('configPanel').classList.remove('show');
+            document.getElementById('configToggle').classList.remove('active');
+            showToast('配置已重置', 'info');
+        }
+
+        function applyPreset(name) {
+            const preset = PRESETS[name];
+            if (!preset) return;
+            const cfg = loadConfig();
+            if (preset.base_url) cfg.base_url = preset.base_url;
+            if (preset.model) cfg.model = preset.model;
+            saveConfigToStorage(cfg);
+            initConfigUI();
+            showToast(`已应用 ${name} 预设`, 'info');
+        }
+
+        function toggleConfig() {
+            const panel = document.getElementById('configPanel');
+            const btn = document.getElementById('configToggle');
+            panel.classList.toggle('show');
+            btn.classList.toggle('active');
+            if (panel.classList.contains('show')) initConfigUI();
+        }
+
+        async function testConnection() {
+            const cfg = {
+                base_url: document.getElementById('cfgBaseUrl').value.trim(),
+                api_key: document.getElementById('cfgApiKey').value.trim(),
+                model: document.getElementById('cfgModel').value.trim(),
+            };
+            if (!cfg.base_url || !cfg.api_key) {
+                showToast('请先填写 API 地址和 API Key', 'warning');
+                return;
+            }
+            const statusEl = document.getElementById('configStatus');
+            statusEl.className = 'config-status testing';
+            statusEl.textContent = '🔌 正在测试连接...';
+
+            try {
+                const resp = await fetch('/api/dexter/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        query: '你好',
+                        model: cfg.model || null,
+                        base_url: cfg.base_url || null,
+                        api_key: cfg.api_key || null,
+                    }),
+                });
+                if (resp.ok) {
+                    statusEl.className = 'config-status success';
+                    statusEl.textContent = '✅ 连接成功！模型服务可用';
+                    showToast('连接测试成功', 'success');
+                } else {
+                    const data = await resp.json().catch(() => ({}));
+                    statusEl.className = 'config-status fail';
+                    statusEl.textContent = `❌ 连接失败: ${data.error || 'HTTP ' + resp.status}`;
+                    showToast('连接测试失败', 'error');
+                }
+            } catch (e) {
+                statusEl.className = 'config-status fail';
+                statusEl.textContent = `❌ 网络错误: ${e.message}`;
+                showToast('连接测试失败', 'error');
+            }
+        }
+
+        let isProcessing = false;
+        let agentAvailable = false;
+        const inputEl = document.getElementById('queryInput');
+        inputEl.addEventListener('input', () => {
+            inputEl.style.height = 'auto';
+            inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px';
+        });
+
+        async function checkStatus() {
+            try {
+                const resp = await fetch('/api/dexter/status');
+                const raw = await resp.json();
+                const data = raw.data || raw;
+                agentAvailable = data.available;
+                const dot = document.getElementById('statusDot');
+                const text = document.getElementById('statusText');
+                if (data.available) {
+                    dot.className = 'status-dot online';
+                    text.textContent = `就绪 | 工具:${data.tools ? data.tools.length : 0}`;
+                } else {
+                    dot.className = 'status-dot offline';
+                    text.textContent = data.error || data.message || '模块未加载';
+                }
+            } catch (e) {
+                document.getElementById('statusDot').className = 'status-dot offline';
+                document.getElementById('statusText').textContent = '服务未连接';
+            }
+        }
+        checkStatus();
+        initConfigUI();
+
+        (function() {
+            const cfg = loadConfig();
+            if (!cfg.api_key && !cfg.base_url.includes('11434')) {
+                setTimeout(() => toggleConfig(), 800);
+            }
+        })();
+
+        function handleKeyDown(e) {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendQuery(); }
+        }
+
+        function askSuggestion(el) {
+            const text = el.textContent.trim();
+            document.getElementById('queryInput').value = text;
+            sendQuery();
+        }
+
+        function clearChat() {
+            const chatArea = document.getElementById('chatArea');
+            chatArea.innerHTML = '';
+            document.getElementById('welcome').style.display = '';
+            chatArea.appendChild(document.getElementById('welcome') || createWelcome());
+            showToast('对话已清空', 'info');
+        }
+
+        function showToast(msg, type = 'info') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.textContent = msg;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.style.animation = 'toastOut 0.3s ease forwards';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        async function sendQuery() {
+            const input = document.getElementById('queryInput');
+            const query = input.value.trim();
+            if (!query || isProcessing) return;
+
+            const cfg = getConfig();
+            if (!cfg.api_key && !(cfg.base_url && cfg.base_url.includes('11434'))) {
+                showToast('请先点击右上角 ⚙️ 设置，填写 API Key 后再提问', 'warning');
+                return;
+            }
+
+            isProcessing = true;
+            input.value = '';
+            input.style.height = 'auto';
+            document.getElementById('sendBtn').disabled = true;
+            document.getElementById('welcome').style.display = 'none';
+
+            addMessage('user', query);
+
+            const progressEl = addProgress();
+
+            const timeoutId = setTimeout(() => {
+                if (isProcessing) {
+                    showToast('请求超时（120秒），请检查模型设置后重试', 'error');
+                    isProcessing = false;
+                    removeProgress(progressEl);
+                    document.getElementById('sendBtn').disabled = false;
+                }
+            }, 120000);
+
+            try {
+                const resp = await fetch('/api/dexter/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+                    body: JSON.stringify({
+                        query, history: getHistory(),
+                        model: cfg.model || null,
+                        base_url: cfg.base_url || null,
+                        api_key: cfg.api_key || null,
+                    }),
+                });
+
+                if (!resp.ok) {
+                    let errMsg = `HTTP ${resp.status}`;
+                    try { const err = await resp.json(); errMsg = err.error || errMsg; } catch (e) {}
+                    removeProgress(progressEl);
+                    addErrorMessage(`请求失败: ${errMsg}`);
+                    return;
+                }
+
+                const reader = resp.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                const state = { answerText: '', hasError: false, tools: [] };
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+
+                    for (let i = 0; i < lines.length; i++) {
+                        const line = lines[i];
+                        if (line.startsWith('event: ')) {
+                            const eventType = line.slice(7).trim();
+                            const dataLine = lines[i + 1];
+                            if (dataLine && dataLine.startsWith('data: ')) {
+                                try {
+                                    const data = JSON.parse(dataLine.slice(6));
+                                    if (eventType === 'error') {
+                                        state.hasError = true;
+                                        removeProgress(progressEl);
+                                        addErrorMessage(data.message || '未知错误');
+                                        return;
+                                    }
+                                    handleEvent(eventType, data, progressEl, state);
+                                } catch (e) {}
+                            }
+                        }
+                    }
+                }
+
+                removeProgress(progressEl);
+
+                if (state.answerText && !state.hasError) {
+                    addMessage('assistant', state.answerText);
+                } else if (!state.hasError) {
+                    addErrorMessage('未收到回复。可能原因：1) API Key 未配置或无效；2) 模型服务超时；3) 网络连接问题。');
+                }
+            } catch (e) {
+                clearTimeout(timeoutId);
+                removeProgress(progressEl);
+                addErrorMessage(`网络错误: ${e.message}`);
+            } finally {
+                clearTimeout(timeoutId);
+                isProcessing = false;
+                document.getElementById('sendBtn').disabled = false;
+                document.getElementById('queryInput').focus();
+            }
+        }
+
+        function handleEvent(type, data, progressEl, state) {
+            switch (type) {
+                case 'thinking':
+                    updateProgress(progressEl, '💭 正在分析...', null, state);
+                    break;
+                case 'tool_start':
+                    const toolName = TOOL_NAMES[data.tool] || data.tool;
+                    state.tools.push({ name: toolName, status: 'running' });
+                    updateProgress(progressEl, `🔍 正在获取${toolName}...`, data.tool, state);
+                    break;
+                case 'tool_end':
+                    const runningTool = state.tools.find(t => t.status === 'running');
+                    if (runningTool) runningTool.status = 'done';
+                    updateProgress(progressEl, '✅ 数据获取完成，正在综合分析...', null, state);
+                    break;
+                case 'status':
+                    updateProgress(progressEl, `⏳ ${data.message}`, null, state);
+                    break;
+                case 'iteration':
+                    const iter = data.iteration || 1;
+                    const maxIter = data.max || 5;
+                    updateProgress(progressEl, `📊 分析进度：第 ${iter}/${maxIter} 步`, null, state, iter, maxIter);
+                    break;
+                case 'done':
+                    state.answerText = data.answer || '';
+                    break;
+            }
+        }
+
+        function addProgress() {
+            const chatArea = document.getElementById('chatArea');
+            const div = document.createElement('div');
+            const id = 'progress-' + Date.now();
+            div.className = 'progress-bar';
+            div.id = id;
+            div.innerHTML = `
+                <span class="progress-spinner"></span>
+                <div style="flex:1;min-width:0;">
+                    <div class="progress-text">准备分析...</div>
+                    <div class="progress-steps" id="steps-${id}"></div>
+                    <div class="tool-list" id="tools-${id}"></div>
+                </div>
+            `;
+            chatArea.appendChild(div);
+            chatArea.scrollTop = chatArea.scrollHeight;
+            return id;
+        }
+
+        function updateProgress(progressId, text, tool, state, iter, maxIter) {
+            const el = document.getElementById(progressId);
+            if (!el) return;
+            const textEl = el.querySelector('.progress-text');
+            if (textEl) textEl.textContent = text;
+
+            const stepsEl = el.querySelector('.progress-steps');
+            if (stepsEl && iter && maxIter) {
+                let html = '';
+                for (let i = 1; i <= maxIter; i++) {
+                    const cls = i < iter ? 'done' : i === iter ? 'active' : '';
+                    html += `<span class="progress-step ${cls}"></span>`;
+                }
+                stepsEl.innerHTML = html;
+            }
+
+            if (state && state.tools.length > 0) {
+                const toolsEl = el.querySelector('.tool-list');
+                if (toolsEl) {
+                    let html = '';
+                    state.tools.forEach(t => {
+                        const icon = t.status === 'done' ? '✅' : '⏳';
+                        const cls = t.status === 'running' ? 'running' : t.status === 'done' ? 'done' : '';
+                        html += `<div class="tool-item"><span class="tool-icon ${cls}">${icon}</span> ${t.name}</div>`;
+                    });
+                    toolsEl.innerHTML = html;
+                }
+            }
+        }
+
+        function removeProgress(id) {
+            const el = document.getElementById(id);
+            if (el) el.remove();
+        }
+
+        function addErrorMessage(msg) {
+            const chatArea = document.getElementById('chatArea');
+            const div = document.createElement('div');
+            div.className = 'message error';
+            div.innerHTML = `<div class="msg-avatar error">⚠️</div><div class="msg-content">${escapeHtml(msg)}</div>`;
+            chatArea.appendChild(div);
+            chatArea.scrollTop = chatArea.scrollHeight;
+        }
+
+        function addMessage(role, content) {
+            const chatArea = document.getElementById('chatArea');
+            const div = document.createElement('div');
+            div.className = `message ${role}`;
+
+            const avatarIcon = role === 'user' ? '👤' : '🧠';
+            const avatarClass = role === 'user' ? 'user' : 'assistant';
+
+            let html = `<div class="msg-avatar ${avatarClass}">${avatarIcon}</div>`;
+            html += '<div class="msg-content">';
+
+            if (role === 'assistant') {
+                html += `<button class="copy-btn" onclick="copyReport(this)">📋 复制</button>`;
+            }
+
+            html += renderMarkdown(content || '');
+            html += '</div>';
+
+            div.innerHTML = html;
+            chatArea.appendChild(div);
+            chatArea.scrollTop = chatArea.scrollHeight;
+        }
+
+        function copyReport(btn) {
+            const content = btn.parentElement;
+            const text = content.innerText || content.textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                btn.textContent = '✅ 已复制';
+                setTimeout(() => { btn.textContent = '📋 复制'; }, 2000);
+            }).catch(() => {
+                const textarea = document.createElement('textarea');
+                textarea.value = text;
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+                btn.textContent = '✅ 已复制';
+                setTimeout(() => { btn.textContent = '📋 复制'; }, 2000);
+            });
+        }
+
+        function getHistory() {
+            const messages = document.querySelectorAll('.message:not(.error)');
+            const history = [];
+            messages.forEach(msg => {
+                const content = msg.querySelector('.msg-content');
+                if (content) {
+                    const mainText = Array.from(content.childNodes)
+                        .filter(n => n.nodeType === 3 || (n.nodeType === 1 && n.tagName !== 'BUTTON'))
+                        .map(n => n.textContent || '').join('').trim();
+                    if (mainText) {
+                        history.push({
+                            role: msg.classList.contains('user') ? 'user' : 'assistant',
+                            content: mainText,
+                        });
+                    }
+                }
+            });
+            return history.slice(-6);
+        }
+
+        function renderMarkdown(text) {
+            if (!text) return '';
+            const codeBlocks = [];
+            const tables = [];
+
+            let processed = text.replace(/```(\w*)\n([\s\S]*?)```/g, (match, lang, code) => {
+                const idx = codeBlocks.length;
+                codeBlocks.push(`<pre><code>${escapeHtml(code)}</code></pre>`);
+                return `%%CODEBLOCK_${idx}%%`;
+            });
+
+            processed = processed.replace(/(\|[^\n]+\|\n\|[-:| ]+\|\n(?:\|[^\n]+\|\n?)+)/g, (match) => {
+                const idx = tables.length;
+                const lines = match.trim().split('\n');
+                let tableHtml = '<table>';
+                for (let i = 0; i < lines.length; i++) {
+                    if (i === 1) continue;
+                    const cells = lines[i].split('|').filter(c => c.trim());
+                    const tag = i === 0 ? 'th' : 'td';
+                    tableHtml += '<tr>';
+                    cells.forEach(c => {
+                        let cell = c.trim();
+                        cell = cell.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+                        cell = cell.replace(/`([^`]+)`/g, '<code>$1</code>');
+                        tableHtml += `<${tag}>${cell}</${tag}>`;
+                    });
+                    tableHtml += '</tr>';
+                }
+                tableHtml += '</table>';
+                tables.push(tableHtml);
+                return `%%TABLE_${idx}%%`;
+            });
+
+            let html = escapeHtml(processed);
+
+            tables.forEach((t, i) => { html = html.replace(`%%TABLE_${i}%%`, t); });
+            codeBlocks.forEach((c, i) => { html = html.replace(`%%CODEBLOCK_${i}%%`, c); });
+
+            html = html.replace(/^&gt;\s*(.+)$/gm, '<blockquote>$1</blockquote>');
+            html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+            html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+            html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+            html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+            html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+            html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+            html = html.replace(/^---$/gm, '<hr>');
+
+            html = html.replace(/^- (.+)$/gm, '<li class="ul-item">$1</li>');
+            html = html.replace(/^(\d+)\. (.+)$/gm, '<li class="ol-item">$2</li>');
+
+            html = html.replace(/((?:<li class="ul-item">[\s\S]*?<\/li>(?:\n|$))+)/g, '<ul>$1</ul>');
+            html = html.replace(/((?:<li class="ol-item">[\s\S]*?<\/li>(?:\n|$))+)/g, '<ol>$1</ol>');
+
+            html = html.replace(/\n\n/g, '</p><p>');
+            html = html.replace(/\n/g, '<br>');
+            html = '<p>' + html + '</p>';
+
+            html = html.replace(/<p><\/p>/g, '');
+            html = html.replace(/<p>(<h[123]>)/g, '$1');
+            html = html.replace(/(<\/h[123]>)<\/p>/g, '$1');
+            html = html.replace(/<p>(<table>)/g, '$1');
+            html = html.replace(/(<\/table>)<\/p>/g, '$1');
+            html = html.replace(/<p>(<ul>)/g, '$1');
+            html = html.replace(/(<\/ul>)<\/p>/g, '$1');
+            html = html.replace(/<p>(<ol>)/g, '$1');
+            html = html.replace(/(<\/ol>)<\/p>/g, '$1');
+            html = html.replace(/<p>(<pre>)/g, '$1');
+            html = html.replace(/(<\/pre>)<\/p>/g, '$1');
+            html = html.replace(/<p>(<hr>)<\/p>/g, '$1');
+            html = html.replace(/<p>(<blockquote>)/g, '$1');
+            html = html.replace(/(<\/blockquote>)<\/p>/g, '$1');
+
+            return html;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>

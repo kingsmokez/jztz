@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 · 价值选股</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            /* Figma 色彩系统 - 活泼深色版 */
+            --bg-primary: #1C1C1E;
+            --bg-secondary: #141416;
+            --bg-dark: #0A0A0C;
+            --bg-card: #28282A;
+            --text-primary: #F5F5F7;
+            --text-secondary: #A1A1A3;
+            --text-muted: #6E6E70;
+            --accent: #7B61FF;
+            --accent-hover: #5E3FD4;
+            --accent-gradient: linear-gradient(135deg, #7B61FF 0%, #A259FF 100%);
+            --border: #3A3A3C;
+            --green: #34C759;
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 24px;
+            --radius-full: 9999px;
+            --shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
+            --shadow-btn: 0 4px 14px rgba(123, 97, 255, 0.35);
+            --transition-bounce: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+            --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* 布局 */
+        .login-container {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* 左侧品牌区域 - 活泼版（深色）*/
+        .brand-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 64px;
+            background: linear-gradient(135deg, #0A0A0C 0%, #141416 100%);
+            color: #ffffff;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .brand-section::before {
+            content: '✨';
+            position: absolute;
+            top: 30px;
+            left: 30px;
+            font-size: 24px;
+            animation: floatIcon 4s ease-in-out infinite;
+        }
+
+        .brand-section::after {
+            content: '💫';
+            position: absolute;
+            bottom: 40px;
+            right: 40px;
+            font-size: 20px;
+            animation: floatIcon 4s ease-in-out infinite 2s;
+        }
+
+        @keyframes floatIcon {
+            0%, 100% { transform: translateY(0) rotate(0deg); opacity: 0.7; }
+            50% { transform: translateY(-8px) rotate(15deg); opacity: 1; }
+        }
+
+        .brand-logo {
+            width: 90px;
+            height: 90px;
+            background: linear-gradient(135deg, #FF6B6B 0%, #7B61FF 50%, #A259FF 100%);
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 44px;
+            font-weight: 700;
+            color: #ffffff;
+            margin-bottom: 32px;
+            box-shadow: 0 8px 32px rgba(255, 107, 107, 0.3), 0 8px 32px rgba(123, 97, 255, 0.3);
+            animation: logoSpin 6s ease-in-out infinite;
+        }
+
+        @keyframes logoSpin {
+            0%, 100% { transform: rotate(0deg) scale(1); }
+            50% { transform: rotate(3deg) scale(1.05); }
+        }
+
+        .brand-title {
+            font-size: 40px;
+            font-weight: 600;
+            line-height: 1.4;
+            color: #ffffff;
+            margin-bottom: 12px;
+            text-align: center;
+        }
+
+        .brand-subtitle {
+            font-size: 16px;
+            font-weight: 400;
+            color: #9CA3A3;
+            text-align: center;
+            max-width: 400px;
+            line-height: 1.5;
+        }
+
+        .brand-features {
+            display: flex;
+            gap: 32px;
+            margin-top: 48px;
+        }
+
+        .feature-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            transition: var(--transition);
+        }
+
+        .feature-item:hover {
+            transform: translateY(-4px) scale(1.05);
+        }
+
+        .feature-icon {
+            width: 52px;
+            height: 52px;
+            background: linear-gradient(135deg, rgba(255, 107, 107, 0.2) 0%, rgba(123, 97, 255, 0.25) 100%);
+            border-radius: var(--radius-md);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            box-shadow: 0 4px 16px rgba(123, 97, 255, 0.2);
+        }
+
+        .feature-text {
+            font-size: 14px;
+            font-weight: 500;
+            color: #ffffff;
+        }
+
+        /* 右侧登录区域 */
+        .login-section {
+            flex: 0 0 480px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            padding: 64px 48px;
+            background: var(--bg-card);
+        }
+
+        .login-header {
+            margin-bottom: 40px;
+        }
+
+        .login-title {
+            font-size: 28px;
+            font-weight: 600;
+            line-height: 1.4;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+
+        .login-desc {
+            font-size: 14px;
+            font-weight: 400;
+            color: var(--text-secondary);
+        }
+
+        /* 表单样式 - Apple 风格 */
+        .login-form {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .form-label {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .form-input {
+            padding: 14px 16px;
+            border: none;
+            border-radius: var(--radius-md);
+            font-size: 14px;
+            font-weight: 400;
+            color: var(--text-primary);
+            background: var(--bg-secondary);
+            transition: var(--transition);
+            font-family: 'Inter', 'Noto Sans SC', sans-serif;
+            box-shadow: var(--shadow);
+        }
+
+        .form-input:focus {
+            outline: none;
+            box-shadow: var(--shadow-md);
+        }
+
+        .form-input::placeholder {
+            color: var(--text-muted);
+        }
+
+        /* 记住登录 */
+        .form-options {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            font-weight: 400;
+            color: var(--text-secondary);
+            cursor: pointer;
+        }
+
+        .checkbox-input {
+            width: 20px;
+            height: 20px;
+            accent-color: var(--accent);
+            border-radius: 4px;
+        }
+
+        .forgot-link {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        .forgot-link:hover {
+            color: var(--accent-hover);
+        }
+
+        /* 登录按钮 - 活泼版 */
+        .btn-login {
+            padding: 18px 24px;
+            background: linear-gradient(135deg, #FF6B6B 0%, #7B61FF 50%, #A259FF 100%);
+            color: #ffffff;
+            border: none;
+            border-radius: var(--radius-md);
+            font-size: 18px;
+            font-weight: 700;
+            font-family: 'Inter', 'Noto Sans SC', sans-serif;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            box-shadow: 0 6px 24px rgba(255, 107, 107, 0.3), 0 6px 24px rgba(123, 97, 255, 0.3);
+            height: 60px;
+            letter-spacing: 0.03em;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-login::before {
+            content: '🎉';
+            position: absolute;
+            right: -25px;
+            opacity: 0;
+            transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        .btn-login:hover::before {
+            right: 15px;
+            opacity: 1;
+        }
+
+        .btn-login:hover {
+            transform: translateY(-4px) scale(1.03);
+            box-shadow: 0 12px 40px rgba(255, 107, 107, 0.4), 0 12px 40px rgba(123, 97, 255, 0.4);
+        }
+
+        .btn-login:active {
+            transform: translateY(0) scale(1);
+            box-shadow: 0 4px 16px rgba(123, 97, 255, 0.3);
+        }
+
+        /* 分割线 */
+        .divider {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin: 32px 0;
+        }
+
+        .divider-line {
+            flex: 1;
+            height: 1px;
+            background: var(--border);
+        }
+
+        .divider-text {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+
+        /* 社交登录按钮 - 活泼版 */
+        .social-buttons {
+            display: flex;
+            gap: 16px;
+        }
+
+        .btn-social {
+            flex: 1;
+            padding: 16px 20px;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            border: 2px solid var(--border);
+            border-radius: var(--radius-md);
+            font-size: 16px;
+            font-weight: 600;
+            font-family: 'Inter', 'Noto Sans SC', sans-serif;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            height: 52px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-social::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, rgba(123, 97, 255, 0.1) 0%, rgba(162, 89, 255, 0.05) 100%);
+            opacity: 0;
+            transition: var(--transition);
+        }
+
+        .btn-social:hover::before {
+            opacity: 1;
+        }
+
+        .btn-social:hover {
+            border-color: var(--accent);
+            transform: translateY(-3px) scale(1.02);
+            box-shadow: 0 8px 24px rgba(123, 97, 255, 0.15);
+        }
+
+        .btn-social-icon {
+            font-size: 22px;
+            font-weight: 800;
+        }
+
+        .btn-social.wechat .btn-social-icon {
+            color: var(--green);
+        }
+
+        .btn-social.email .btn-social-icon {
+            color: var(--accent);
+        }
+
+        /* 注册链接 */
+        .signup-link {
+            text-align: center;
+            margin-top: 32px;
+            font-size: 13px;
+            font-weight: 400;
+            color: var(--text-secondary);
+        }
+
+        .signup-link a {
+            font-weight: 500;
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        .signup-link a:hover {
+            color: var(--accent-hover);
+        }
+
+        /* 底部版权 */
+        .login-footer {
+            margin-top: 40px;
+            text-align: center;
+            font-size: 12px;
+            font-weight: 400;
+            color: var(--text-muted);
+        }
+
+        /* 响应式 */
+        @media (max-width: 1024px) {
+            .login-container {
+                flex-direction: column;
+            }
+
+            .brand-section {
+                padding: 48px 32px;
+            }
+
+            .brand-title {
+                font-size: 32px;
+            }
+
+            .brand-features {
+                flex-wrap: wrap;
+                justify-content: center;
+            }
+
+            .login-section {
+                flex: none;
+                padding: 48px 32px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .social-buttons {
+                flex-direction: column;
+            }
+        }
+
+        /* 加载动画 */
+        .loading-spinner {
+            display: none;
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        .btn-login.loading .loading-spinner {
+            display: block;
+        }
+
+        .btn-login.loading .btn-text {
+            display: none;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <!-- 左侧品牌展示区 - Apple 深色风格 -->
+        <div class="brand-section">
+            <div class="brand-logo">K</div>
+            <h1 class="brand-title">价值选股</h1>
+            <p class="brand-subtitle">基于 SEPA+VCP 策略的选股系统，筛选市场中的潜力标的</p>
+
+            <div class="brand-features">
+                <div class="feature-item">
+                    <div class="feature-icon">📊</div>
+                    <span class="feature-text">选股</span>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">🔄</div>
+                    <span class="feature-text">策略回测</span>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">🛡</div>
+                    <span class="feature-text">风险控制</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右侧登录表单区 -->
+        <div class="login-section">
+            <div class="login-header">
+                <h2 class="login-title">欢迎回来</h2>
+                <p class="login-desc">登录您的账户继续使用</p>
+            </div>
+
+            <form class="login-form" action="/login" method="POST">
+                <div class="form-group">
+                    <label class="form-label">用户名</label>
+                    <input type="text" class="form-input" name="username" placeholder="请输入用户名" required>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">密码</label>
+                    <input type="password" class="form-input" name="password" placeholder="请输入密码" required>
+                </div>
+
+                <div class="form-options">
+                    <label class="checkbox-label">
+                        <input type="checkbox" class="checkbox-input" name="remember">
+                        <span>记住登录状态</span>
+                    </label>
+                    <a href="#" class="forgot-link">忘记密码？</a>
+                </div>
+
+                <button type="submit" class="btn-login">
+                    <span class="btn-text">登录</span>
+                    <div class="loading-spinner"></div>
+                </button>
+            </form>
+
+            <div class="divider">
+                <div class="divider-line"></div>
+                <span class="divider-text">或</span>
+                <div class="divider-line"></div>
+            </div>
+
+            <div class="social-buttons">
+                <button class="btn-social wechat">
+                    <span class="btn-social-icon">微</span>
+                    微信登录
+                </button>
+                <button class="btn-social email">
+                    <span class="btn-social-icon">@</span>
+                    邮箱登录
+                </button>
+            </div>
+
+            <p class="signup-link">
+                还没有账户？<a href="/register">立即注册</a>
+            </p>
+
+            <p class="login-footer">
+                © 2025 价值选股 v18
+            </p>
+        </div>
+    </div>
+
+    <script>
+        // 表单提交动画
+        document.querySelector('.login-form').addEventListener('submit', function(e) {
+            const btn = this.querySelector('.btn-login');
+            btn.classList.add('loading');
+            btn.disabled = true;
+        });
+    </script>
+</body>
+</html>
