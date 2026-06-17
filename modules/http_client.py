@@ -11,6 +11,7 @@ from urllib3.util.retry import Retry
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+import os
 from modules.config import Config
 from modules.logger import log
 
@@ -24,7 +25,7 @@ def get_session() -> requests.Session:
     global _session
     if _session is None:
         _session = requests.Session()
-        _session.verify = False
+        _session.verify = os.environ.get('SSL_VERIFY', 'true').lower() != 'false'
         _session.trust_env = False
         _session.headers.update({
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",

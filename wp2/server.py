@@ -25,14 +25,15 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 app = Flask(__name__, static_folder='static', static_url_path='')
 
-# 自定义SSL适配器 - 解决Windows SSL连接问题
+# 自定义SSL适配器 - 兼容旧系统同时保持安全
 class SSLAdapter(HTTPAdapter):
     def init_poolmanager(self, *args, **kwargs):
         ctx = create_urllib3_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
+        # 保持证书验证，降低安全级别以兼容部分旧服务器
+        ctx.check_hostname = True
+        ctx.verify_mode = ssl.CERT_REQUIRED
         try:
-            ctx.options |= ssl.OP_NO_SSLv2 | ssl.OP_NO_SSLv3
+            ctx.options |= ssl.OP_NO_SSLv2 | ssl.OP_NO_SSLv3 | ssl.OP_NO_TLSv1 | ssl.OP_NO_TLSv1_1
         except AttributeError:
             pass
         try:
@@ -46,11 +47,11 @@ class SSLAdapter(HTTPAdapter):
         kwargs['ssl_context'] = ctx
         return super().init_poolmanager(*args, **kwargs)
 
-# 创建全局session，禁用SSL验证和代理
+# 创建全局session，启用SSL验证
 session = rq.Session()
 session.mount('https://', SSLAdapter())
-session.verify = False
-session.trust_env = False  # 关键：禁用环境代理
+session.verify = True  # 启用证书验证
+session.trust_env = False  # 禁用环境代理，避免代理干扰
 session.headers.update({
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Accept': '*/*',
@@ -173,27 +174,10 @@ def get_tencent_market_cap(codes):
         return {}
 
 
-def get_tencent_kline(symbol, count=60):
-    try:
-        r = session.get('https://web.ifzq.gtimg.cn/appstock/app/fqkline/get',
-                    params={'param': f'{symbol},day,,,{count},qfq'},
-                    timeout=10)
-        d = r.json()
-        if d.get('code') != 0:
-            return None
-        data = d.get('data', {})
-        stock_key = list(data.keys())[0] if data else None
-        if not stock_key:
-            return None
-        qfqday = data[stock_key].get('qfqday') or data[stock_key].get('day') or []
-        klines = []
-        for row in qfqday:
-            if len(row) >= 6:
-                klines.append(f"{row[0]},{row[1]},{row[2]},{row[3]},{row[4]},{row[5]}")
-        return {'data': {'klines': klines}}
-    except Exception as e:
-        print(f"  [腾讯K线] 失败 {symbol}: {e}")
-        return None
+def get_kline(symbol, count=60):
+    """获取K线数据（多源自动降级: 腾讯→新浪→东方财富）"""
+    from modules.kline_fetcher import kline_fetcher
+    return kline_fetcher.get_kline_raw(symbol, count)
 
 
 @app.route('/api/stock_list')
@@ -270,7 +254,7 @@ def kline():
         return jsonify(_cache[key][1])
 
     symbol = f'sh{code}' if market == '1' else f'sz{code}'
-    data = get_tencent_kline(symbol, int(lmt))
+    data = get_kline(symbol, int(lmt))
     if data:
         _cache[key] = (time.time(), data)
         return jsonify(data)
@@ -292,7 +276,7 @@ def kline_batch():
             results[code] = _cache[key][1]
             continue
         symbol = f'sh{code}' if market == '1' else f'sz{code}'
-        kd = get_tencent_kline(symbol, 60)
+        kd = get_kline(symbol, 60)
         results[code] = kd
         if kd:
             _cache[key] = (time.time(), kd)

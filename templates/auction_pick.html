@@ -902,7 +902,7 @@
     <div class="container">
         <div class="header">
             <h1>⚡ 早盘集合竞价选股</h1>
-            <p class="subtitle">竞价确认 · 强势早盘策略 | 选股时间: 9:25 竞价结束后</p>
+            <p class="subtitle">竞价确认 · 强势早盘策略 | 预选时间: 15:00~21:00（15:30自动执行）| 竞价时间: 次日9:25</p>
             <div class="header-actions">
                 <a href="/" class="btn-outline">← 返回首页</a>
                 <button class="btn-primary" onclick="executeAuctionPick()" id="executeBtn">🎯 执行竞价选股</button>
@@ -966,8 +966,8 @@
             <!-- 第一阶段：昨晚预选 -->
             <div class="criteria-card">
                 <h3>
-                    <span class="icon">🌙</span> 第一阶段：昨晚预选
-                    <button class="btn-preselect" onclick="executePreselect()" id="preselectBtn" disabled>🎯 检查中...</button>
+                    <span class="icon">🌙</span> 第一阶段：尾盘预选
+                    <button class="btn-preselect" onclick="executePreselect()" id="preselectBtn" disabled>⏳ 检查中...</button>
                 </h3>
                 <div class="criteria-list">
                     <div class="criteria-item">
@@ -1113,20 +1113,21 @@
                 const status = await resp.json();
                 const btn = document.getElementById('preselectBtn');
 
-                // 新逻辑：只要在交易时段就允许预选
-                if (status.can_preselect) {
-                    btn.disabled = false;
-                    if (status.candidate_count > 0 && status.preselect_done_today) {
-                        btn.innerHTML = '🔄 重新预选';
-                        btn.title = '已有缓存结果，可重新执行预选';
-                    } else {
-                        btn.innerHTML = '🎯 立即预选';
-                        btn.title = '点击执行第一阶段预选';
-                    }
-                } else {
+                if (status.preselect_done_today) {
+                    // 今日已预选，按钮灰色不可用
                     btn.disabled = true;
-                    btn.innerHTML = '🎯 非交易时段';
-                    btn.title = '预选只能在交易时段 9:00~22:00 执行';
+                    btn.innerHTML = '✅ 今日已预选';
+                    btn.title = '每日仅限一次预选，15:30会自动执行';
+                } else if (status.in_preselect_window) {
+                    // 在15:00~21:00窗口内且未预选
+                    btn.disabled = false;
+                    btn.innerHTML = '🎯 立即预选';
+                    btn.title = '点击执行第一阶段预选（每日仅限一次）';
+                } else {
+                    // 不在预选窗口
+                    btn.disabled = true;
+                    btn.innerHTML = '⏰ 15:00后可预选';
+                    btn.title = '预选窗口: 15:00~21:00，15:30自动执行';
                 }
 
                 // 更新预选时间显示
@@ -1231,7 +1232,7 @@
                         <div class="label">候选数量</div>
                     </div>
                     <div class="pool-stat">
-                        <div class="value">${candidates.filter(c => c.change_pct >= 0.05).length}</div>
+                        <div class="value">${candidates.filter(c => c.change_pct >= 5).length}</div>
                         <div class="label">强势股(≥5%)</div>
                     </div>
                     <div class="pool-stat">
@@ -1248,7 +1249,7 @@
 
             candidates.forEach((stock, idx) => {
                 const changeClass = stock.change_pct >= 0 ? 'up' : 'down';
-                const changeValue = (stock.change_pct >= 0 ? '+' : '') + (stock.change_pct * 100).toFixed(2) + '%';
+                const changeValue = (stock.change_pct >= 0 ? '+' : '') + stock.change_pct.toFixed(2) + '%';
 
                 // 量比评级: >=2金色, 1.5-2红色, <1.5绿色
                 const volumeRatio = stock.volume_ratio || 0;

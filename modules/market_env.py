@@ -107,23 +107,51 @@ class MarketEnv:
 
     def _calc_multiplier(self) -> None:
         m = 1.0
+        # 趋势影响
         if self.trend == "bear":
             m -= 0.4
         elif self.trend == "range":
             m -= 0.15
+        # 当日涨跌影响
         if self.status == "strong_down":
             m -= 0.3
         elif self.status == "down":
             m -= 0.15
         elif self.status == "strong_up":
             m += 0.1
+        # 波动率影响
         if self.volatility == "high":
             m -= 0.15
+        # 过渡期额外保守：趋势和当日行情矛盾时减分
+        # 熊市中的上涨日（可能是反弹陷阱）
+        if self.trend == "bear" and self.status in ("up", "strong_up"):
+            m -= 0.1  # 反弹可能是诱多，需谨慎
+        # 牛市中的下跌日（可能是回调，不需要太悲观）
+        # (no penalty - bull market dips are buying opportunities)
         self.multiplier = max(0.3, min(1.3, m))
 
     def can_pick(self) -> bool:
-        """Whether it's safe to run stock picking at all."""
-        return not (self.trend == "bear" and self.status == "strong_down")
+        """Whether it's safe to run stock picking at all.
+        
+        Stop conditions (any one triggers pause):
+        1. Bear trend + strong down day (original)
+        2. Bear trend + down day + high volatility (恐慌性下跌)
+        3. Strong down day regardless of trend (暴跌日)
+        4. Bear trend + consecutive down days (连续下跌)
+        """
+        # Condition 1: 熊市 + 大跌
+        if self.trend == "bear" and self.status == "strong_down":
+            return False
+        # Condition 2: 熊市 + 下跌 + 高波动 (恐慌蔓延)
+        if self.trend == "bear" and self.status == "down" and self.volatility == "high":
+            return False
+        # Condition 3: 暴跌日 (跌幅 > 3%)，无论趋势
+        if self.change_pct < -3.0:
+            return False
+        # Condition 4: 熊市 + 高波动 (市场极不稳定)
+        if self.trend == "bear" and self.volatility == "high":
+            return False
+        return True
 
     def adjusted_top_n(self, base: int) -> int:
         """Return reduced/increased pick count based on market."""

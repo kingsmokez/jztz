@@ -66,7 +66,7 @@ CMD ["sh", "-c", "exec gunicorn \
     --threads ${GUNICORN_THREADS} \
     --bind 0.0.0.0:${PORT} \
     --worker-class gthread \
-    --timeout 60 \
+    --timeout 300 --graceful-timeout 300 \
     --access-logfile - \
     --error-logfile - \
     web_app:app"]

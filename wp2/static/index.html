@@ -58,6 +58,8 @@ body{font-family:'Noto Sans SC',system-ui,sans-serif;background:#0a0a0f;color:#e
 <button class="tab-btn active" onclick="switchTab('screening')">选股</button>
 <button class="tab-btn" onclick="switchTab('rules')">规则</button>
 <button class="tab-btn" onclick="switchTab('params')">参数</button>
+<button class="tab-btn" onclick="switchTab('portfolio')">持仓</button>
+<button class="tab-btn" onclick="switchTab('history')">历史</button>
 </div>
 
 <div id="tab-screening">
@@ -83,7 +85,7 @@ body{font-family:'Noto Sans SC',system-ui,sans-serif;background:#0a0a0f;color:#e
 <div id="tab-rules" style="display:none"><div class="card p-5 space-y-3 text-sm" style="color:#cbd5e1">
 <div class="p-3 rounded-lg" style="background:rgba(59,130,246,.05)"><b style="color:#3b82f6">第1层</b> 基础过滤：剔除ST/退市/688/8开头/4开头/次新；流通市值30~300亿；成交额>3亿</div>
 <div class="p-3 rounded-lg" style="background:rgba(34,197,94,.05)"><b style="color:#22c55e">第2层</b> 均线多头排列：MA5>MA10>MA20>MA60</div>
-<div class="p-3 rounded-lg" style="background:rgba(245,158,11,.05)"><b style="color:#f59e0b">第3层</b> 量价突破：放量>1.5倍 + 破20日新高 + 实体>60%</div>
+<div class="p-3 rounded-lg" style="background:rgba(245,158,11,.05)"><b style="color:#f59e0b">第3层</b> 量价突破：量比>1.5倍(5日均量) + 破20日新高 + 实体>60%</div>
 <div class="p-3 rounded-lg" style="background:rgba(139,92,246,.05)"><b style="color:#8b5cf6">第4层</b> RSI安全区：50&lt;RSI(14)&lt;75</div>
 <div class="p-3 rounded-lg" style="background:rgba(6,182,212,.05)"><b style="color:#06b6d4">第5层</b> MACD确认：DIF>DEA 且 MACD柱>0</div>
 </div></div>
@@ -92,28 +94,46 @@ body{font-family:'Noto Sans SC',system-ui,sans-serif;background:#0a0a0f;color:#e
 <div><label class="text-xs block mb-1" style="color:#94a3b8">市值下限(亿)</label><input type="number" class="param-input" id="p0" value="30"></div>
 <div><label class="text-xs block mb-1" style="color:#94a3b8">市值上限(亿)</label><input type="number" class="param-input" id="p1" value="300"></div>
 <div><label class="text-xs block mb-1" style="color:#94a3b8">最低成交额(亿)</label><input type="number" class="param-input" id="p2" value="3"></div>
-<div><label class="text-xs block mb-1" style="color:#94a3b8">放量倍数</label><input type="number" class="param-input" id="p3" value="1.5" step="0.1"></div>
+<div><label class="text-xs block mb-1" style="color:#94a3b8">量比倍数</label><input type="number" class="param-input" id="p3" value="1.5" step="0.1"></div>
 <div><label class="text-xs block mb-1" style="color:#94a3b8">突破天数</label><input type="number" class="param-input" id="p4" value="20"></div>
 <div><label class="text-xs block mb-1" style="color:#94a3b8">实体占比</label><input type="number" class="param-input" id="p5" value="0.6" step="0.05"></div>
 <div><label class="text-xs block mb-1" style="color:#94a3b8">RSI下限</label><input type="number" class="param-input" id="p6" value="50"></div>
 <div><label class="text-xs block mb-1" style="color:#94a3b8">RSI上限</label><input type="number" class="param-input" id="p7" value="75"></div>
 <div><label class="text-xs block mb-1" style="color:#94a3b8">最多输出</label><input type="number" class="param-input" id="p8" value="4"></div>
+<div><label class="text-xs block mb-1" style="color:#94a3b8">止损比例(%)</label><input type="number" class="param-input" id="p9" value="-8" step="0.5"></div>
+<div><label class="text-xs block mb-1" style="color:#94a3b8">止盈比例(%)</label><input type="number" class="param-input" id="p10" value="15" step="0.5"></div>
+<div><label class="text-xs block mb-1" style="color:#94a3b8">最大持仓天数</label><input type="number" class="param-input" id="p11" value="20"></div>
 </div></div></div>
+
+<div id="tab-portfolio" style="display:none"><div class="card p-5">
+<div class="flex items-center justify-between mb-3"><h3 class="font-bold text-sm flex items-center gap-2"><i data-lucide="briefcase" style="width:16px;height:16px;color:#3b82f6"></i>当前持仓</h3><span class="text-xs" style="color:#64748b" id="pfSummary">0只</span></div>
+<div class="overflow-x-auto"><table class="stock-table"><thead><tr><th>代码</th><th>名称</th><th>买入价</th><th>当前价</th><th>盈亏%</th><th>持仓天数</th><th>止损价</th><th>止盈价</th><th>状态</th><th>操作</th></tr></thead><tbody id="pfBody"></tbody></table></div>
+<div id="pfEmpty" class="text-center py-6 text-sm" style="color:#64748b">暂无持仓</div>
+</div></div>
+
+<div id="tab-history" style="display:none"><div class="card p-5">
+<div class="flex items-center justify-between mb-3"><h3 class="font-bold text-sm flex items-center gap-2"><i data-lucide="history" style="width:16px;height:16px;color:#8b5cf6"></i>交易历史</h3><span class="text-xs" style="color:#64748b" id="histSummary">0笔</span></div>
+<div class="overflow-x-auto"><table class="stock-table"><thead><tr><th>代码</th><th>名称</th><th>买入价</th><th>卖出价</th><th>盈亏%</th><th>持仓天数</th><th>卖出原因</th><th>日期</th></tr></thead><tbody id="histBody"></tbody></table></div>
+<div id="histEmpty" class="text-center py-6 text-sm" style="color:#64748b">暂无交易记录</div>
+</div></div>
 </main>
 
 <script>
 const API='http://localhost:5577/api';let running=false;
 function showToast(m,t='info'){const e=document.getElementById('toast');e.className=`toast toast-${t}`;e.textContent=m;e.classList.add('show');setTimeout(()=>e.classList.remove('show'),3500)}
-function switchTab(id){['screening','rules','params'].forEach(t=>{document.getElementById('tab-'+t).style.display=t===id?'block':'none'});document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',['screening','rules','params'][i]===id))}
+function switchTab(id){['screening','rules','params','portfolio','history'].forEach(t=>{document.getElementById('tab-'+t).style.display=t===id?'block':'none'});document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',['screening','rules','params','portfolio','history'][i]===id))}
 function P(i){return parseFloat(document.getElementById('p'+i).value)}
 function setProg(v){document.getElementById('pFill').style.width=v+'%';document.getElementById('pPct').textContent=v+'%'}
 function addLog(m,t='info'){const b=document.getElementById('logBox');b.innerHTML+=`<div><span class="log-time">[${new Date().toLocaleTimeString('zh-CN')}]</span> <span class="log-${t}">${m}</span></div>`;b.scrollTop=b.scrollHeight}
 setInterval(()=>document.getElementById('clock').textContent=new Date().toLocaleTimeString('zh-CN'),1000);
 
 function calcMA(c,p){if(c.length<p)return null;let s=0;for(let i=c.length-p;i<c.length;i++)s+=c[i];return s/p}
-function calcEMA(c,p){if(c.length<p)return null;const k=2/(p+1);let e=0;for(let i=0;i<p;i++)e+=c[i];e/=p;for(let i=p;i<c.length;i++)e=c[i]*k+e*(1-k);return e}
-function calcMACD(c){if(c.length<35)return null;const dif=calcEMA(c,12)-calcEMA(c,26);if(dif===null)return null;const da=[];for(let i=25;i<c.length;i++){const f=calcEMA(c.slice(0,i+1),12),s=calcEMA(c.slice(0,i+1),26);if(f&&s)da.push(f-s)}const dea=da.length>=9?calcEMA(da,9):null;return{dif,dea,macd:dea!==null?2*(dif-dea):null}}
-function calcRSI(c,p=14){if(c.length<p+1)return null;let gs=0,ls=0;for(let i=c.length-p;i<c.length;i++){const d=c[i]-c[i-1];if(d>0)gs+=d;else ls-=d}return 100-100/(1+gs/p/((ls/p)||0.001))}
+function calcEMA(c,p){if(c.length<p)return null;const k=2/(p+1);let e=c[0];for(let i=1;i<c.length;i++)e=c[i]*k+e*(1-k);return e}
+function calcEMASeries(c,p){if(c.length<p)return null;const k=2/(p+1);let e=c[0];const r=[e];for(let i=1;i<c.length;i++){e=c[i]*k+e*(1-k);r.push(e)}return r}
+function calcMACD(c){if(c.length<35)return null;const ema12=calcEMASeries(c,12),ema26=calcEMASeries(c,26);if(!ema12||!ema26)return null;const dif=[];for(let i=0;i<c.length;i++)dif.push(ema12[i]-ema26[i]);if(dif.length<9)return null;const dea=calcEMA(dif,9);if(dea===null)return null;const macd=2*(dif[dif.length-1]-dea);return{dif:dif[dif.length-1],dea,macd}}
+function calcRSI(c,p=14){if(c.length<p+1)return null;let gs=0,ls=0;for(let i=1;i<=p;i++){const d=c[c.length-p+i]-c[c.length-p+i-1];if(d>0)gs+=d;else ls-=d}const avgGain=gs/p,avgLoss=ls/p;if(avgLoss===0)return 100;const rs=avgGain/avgLoss;return 100-100/(1+rs)}
+function calcVolumeRatio(vl){if(vl.length<6)return 1;let avgVol=0;for(let i=vl.length-6;i<vl.length-1;i++)avgVol+=vl[i];avgVol/=5;return avgVol>0?vl[vl.length-1]/avgVol:1}
+function calcATR(kl,p=14){if(kl.length<p+1)return null;const tr=[];for(let i=1;i<kl.length;i++){const hl=kl[i].h-kl[i].lo,hc=Math.abs(kl[i].h-kl[i-1].c),lc=Math.abs(kl[i].lo-kl[i-1].c);tr.push(Math.max(hl,hc,lc))}let atr=0;for(let i=0;i<p;i++)atr+=tr[i];atr/=p;for(let i=p;i<tr.length;i++)atr=(atr*(p-1)+tr[i])/p;return atr}
 function calcScore(s){let sc=0;const vr=s.vr||0,ch=s.ch||0,rs=+s.rsi||0,ca=s.cap/1e8;if(vr>=2.5)sc+=30;else if(vr>=2)sc+=25;else if(vr>=1.5)sc+=18;else sc+=10;if(ch>=3&&ch<=6)sc+=25;else if(ch>=2)sc+=20;else if(ch>=1)sc+=15;else sc+=5;if(rs>=55&&rs<=65)sc+=25;else if(rs>=50&&rs<=70)sc+=20;else sc+=10;if(ca>=50&&ca<=200)sc+=20;else if(ca>=30&&ca<=300)sc+=15;else sc+=8;return Math.min(sc,100)}
 
 async function checkConn(){try{const r=await fetch(API+'/index?secid=1.000300',{signal:AbortSignal.timeout(3000)});if(r.ok){document.getElementById('cDot').style.background='#22c55e';document.getElementById('cTxt').textContent='已连接';document.getElementById('cTxt').style.color='#22c55e';return true}}catch(e){}document.getElementById('cDot').style.background='#ef4444';document.getElementById('cTxt').textContent='未连接';document.getElementById('cTxt').style.color='#ef4444';return false}
@@ -176,7 +196,7 @@ try{
         const cl=kl.map(k=>k.c),hi=kl.map(k=>k.h),vl=kl.map(k=>k.v),t=kl.length-1;
         const m5=calcMA(cl,5),m10=calcMA(cl,10),m20=calcMA(cl,20),m60=calcMA(cl,60);
         if(!m5||!m10||!m20||!m60||!(m5>m10&&m10>m20&&m20>m60&&cl[t]>m20))continue;pMA++;
-        if(!(vl[t]>(vl[t-1]||1)*volMul))continue;
+        const vr=calcVolumeRatio(vl);if(vr<volMul)continue;
         let hn=0;for(let j=t-1;j>=Math.max(0,t-breakN);j--)hn=Math.max(hn,hi[j]);if(!(cl[t]>hn))continue;
         const bd2=cl[t]-kl[t].o,rng=hi[t]-kl[t].lo;if(!(rng>0&&bd2/rng>bodyR))continue;pVol++;
         const rsi=calcRSI(cl);if(rsi===null||!(rsi>rsiLo&&rsi<rsiHi))continue;pRSI++;
@@ -210,6 +230,13 @@ try{
     document.getElementById('resBox').style.display='block';
     document.getElementById('noRes').style.display=final.length?'none':'block';
     showToast(final.length?`选出 ${final.length} 只`:'今日无符合条件','info');
+
+    // 保存选股结果到localStorage，用于模拟买入
+    if(final.length>0){
+        const today=new Date().toISOString().split('T')[0];
+        localStorage.setItem('lastPick_'+today,JSON.stringify(final));
+        addLog('选股结果已保存，可在持仓页模拟买入','info');
+    }
 }catch(e){
     addLog('错误: '+e.message,'err');showToast(e.message,'error');
     document.getElementById('progBox').style.display='none';
@@ -220,7 +247,115 @@ btn.innerHTML='<i data-lucide="zap" style="width:20px;height:20px"></i>执行尾
 lucide.createIcons();
 }
 
+// ==================== 交易管理系统 ====================
+const Portfolio={
+    getPositions(){try{return JSON.parse(localStorage.getItem('portfolio')||'[]')}catch(e){return[]}},
+    getHistory(){try{return JSON.parse(localStorage.getItem('tradeHistory')||'[]')}catch(e){return[]}},
+    getSettings(){try{return JSON.parse(localStorage.getItem('portfolioSettings')||'{"capital":100000,"maxPosition":0.25,"riskPerTrade":0.02}')}catch(e){return{capital:100000,maxPosition:0.25,riskPerTrade:0.02}}},
+    savePositions(p){localStorage.setItem('portfolio',JSON.stringify(p))},
+    saveHistory(h){localStorage.setItem('tradeHistory',JSON.stringify(h))},
+    saveSettings(s){localStorage.setItem('portfolioSettings',JSON.stringify(s))},
+    calcPositionSize(price,atr){
+        const settings=this.getSettings();
+        const maxAmount=settings.capital*settings.maxPosition;
+        const riskAmount=settings.capital*settings.riskPerTrade;
+        const atrValue=atr||price*0.02;
+        const shares=Math.floor(riskAmount/atrValue);
+        const amount=shares*price;
+        return{shares:amount>maxAmount?Math.floor(maxAmount/price):shares,amount:Math.min(amount,maxAmount)};
+    },
+    addPosition(stock){
+        const positions=this.getPositions();
+        const stopLoss=P(9)/100,stopProfit=P(10)/100,maxDays=P(11);
+        const posSize=this.calcPositionSize(stock.price,stock.price*0.02);
+        positions.push({
+            code:stock.code,name:stock.name,
+            buyPrice:stock.price,buyDate:new Date().toISOString().split('T')[0],
+            stopLoss:stock.price*(1+stopLoss),stopProfit:stock.price*(1+stopProfit),
+            maxDays:maxDays,status:'holding',
+            shares:posSize.shares,amount:posSize.amount
+        });
+        this.savePositions(positions);
+        this.renderPortfolio();
+    },
+    sellPosition(index,sellPrice,reason){
+        const positions=this.getPositions();
+        const pos=positions[index];
+        if(!pos)return;
+        const holdDays=Math.floor((Date.now()-new Date(pos.buyDate).getTime())/(1000*60*60*24));
+        const pnl=((sellPrice-pos.buyPrice)/pos.buyPrice*100).toFixed(2);
+        const history=this.getHistory();
+        history.unshift({
+            code:pos.code,name:pos.name,
+            buyPrice:pos.buyPrice,sellPrice:sellPrice,
+            pnl:pnl,holdDays:holdDays,reason:reason,
+            date:new Date().toISOString().split('T')[0]
+        });
+        this.saveHistory(history);
+        positions.splice(index,1);
+        this.savePositions(positions);
+        this.renderPortfolio();
+        this.renderHistory();
+    },
+    checkExitSignals(){
+        const positions=this.getPositions();
+        positions.forEach((pos,idx)=>{
+            if(pos.status!=='holding')return;
+            const holdDays=Math.floor((Date.now()-new Date(pos.buyDate).getTime())/(1000*60*60*24));
+            // 这里需要获取当前价格，简化处理
+        });
+    },
+    renderPortfolio(){
+        const positions=this.getPositions();
+        const tbody=document.getElementById('pfBody');
+        if(!tbody)return;
+        if(positions.length===0){document.getElementById('pfEmpty').style.display='block';tbody.innerHTML='';document.getElementById('pfSummary').textContent='0只';return}
+        document.getElementById('pfEmpty').style.display='none';
+        document.getElementById('pfSummary').textContent=positions.length+'只';
+        tbody.innerHTML=positions.map((pos,i)=>{
+            const holdDays=Math.floor((Date.now()-new Date(pos.buyDate).getTime())/(1000*60*60*24));
+            return `<tr>
+                <td>${pos.code}</td><td>${pos.name}</td>
+                <td>${pos.buyPrice.toFixed(2)}</td><td>--</td><td>--</td>
+                <td>${holdDays}</td>
+                <td>${pos.stopLoss.toFixed(2)}</td><td>${pos.stopProfit.toFixed(2)}</td>
+                <td><span class="badge badge-pass">持有中</span></td>
+                <td><button class="btn-primary" style="padding:4px 12px;font-size:12px" onclick="Portfolio.sellPosition(${i},${pos.buyPrice},'手动卖出')">卖出</button></td>
+            </tr>`;
+        }).join('');
+    },
+    renderHistory(){
+        const history=this.getHistory();
+        const tbody=document.getElementById('histBody');
+        if(!tbody)return;
+        if(history.length===0){document.getElementById('histEmpty').style.display='block';tbody.innerHTML='';document.getElementById('histSummary').textContent='0笔';return}
+        document.getElementById('histEmpty').style.display='none';
+        document.getElementById('histSummary').textContent=history.length+'笔';
+        tbody.innerHTML=history.slice(0,50).map(t=>`<tr>
+            <td>${t.code}</td><td>${t.name}</td>
+            <td>${t.buyPrice.toFixed(2)}</td><td>${t.sellPrice.toFixed(2)}</td>
+            <td style="color:${t.pnl>=0?'#22c55e':'#ef4444'}">${t.pnl>=0?'+':''}${t.pnl}%</td>
+            <td>${t.holdDays}</td><td>${t.reason}</td><td>${t.date}</td>
+        </tr>`).join('');
+    }
+};
+
+// 大盘风控检查
+async function checkMarketRisk(){
+    try{
+        const r=await fetch(`${API}/index?secid=1.000300&fields=f43,f60,f170`);
+        const d=await r.json();
+        if(d.data){
+            const ch=d.data.f170/100;
+            if(ch<-2)return{signal:false,reason:`沪深300跌幅${ch.toFixed(2)}%，暂停交易`};
+            return{signal:true,reason:`沪深300正常`};
+        }
+    }catch(e){}
+    return{signal:true,reason:'风控数据获取失败，默认允许'};
+}
+
 checkConn(); setInterval(checkConn, 10000);
+Portfolio.renderPortfolio();Portfolio.renderHistory();
 </script>
 </body>
 </html>

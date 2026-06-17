@@ -73,7 +73,15 @@ def _load_auction_cache():
     try:
         if os.path.exists(AUCTION_PICK_FILE):
             with open(AUCTION_PICK_FILE, 'r', encoding='utf-8') as f:
-                AUCTION_PICK_DATA = json.load(f)
+                data = json.load(f)
+                # V5.5: Filter ROE<0 stocks from cache
+                if isinstance(data, list):
+                    data = [r for r in data
+                            if not (isinstance(r.get('roe'), (int, float)) and r.get('roe') < 0)]
+                elif isinstance(data, dict) and 'stocks' in data:
+                    data['stocks'] = [r for r in data.get('stocks', [])
+                                     if not (isinstance(r.get('roe'), (int, float)) and r.get('roe') < 0)]
+                AUCTION_PICK_DATA = data
     except Exception as e:
         log.warning(f"加载竞价选股缓存失败: {e}")
     if not AUCTION_PICK_DATA:
@@ -195,9 +203,10 @@ def api_auction_confirm():
         min_gap = 0.02 if idx_gap > 0.015 else 0.01
 
         for stock in candidates:
-            gap_ok = min_gap <= stock.get('gap_pct', 0) <= 0.045
-            volume_ratio_ok = 1.8 <= stock.get('volume_ratio', 0) <= 5
-            auction_amount_ok = stock.get('auction_amount_pct', 0) >= 0.03
+            # 放宽过滤条件：允许更高高开、更低量比要求
+            gap_ok = min_gap <= stock.get('gap_pct', 0) <= 0.065
+            volume_ratio_ok = 0.5 <= stock.get('volume_ratio', 0) <= 10
+            auction_amount_ok = stock.get('auction_amount_pct', 0) >= 0.01
             stronger_than_market = stock.get('gap_pct', 0) > idx_gap
 
             if gap_ok and volume_ratio_ok and auction_amount_ok and stronger_than_market:
@@ -246,6 +255,33 @@ def api_auction_confirm():
 def api_auction_preselect():
     try:
         now = datetime.now()
+        current_hour = now.hour
+        current_minute = now.minute
+
+        # 只允许 15:00~21:00 执行预选
+        in_window = (current_hour == 15) or (16 <= current_hour <= 20) or (current_hour == 21 and current_minute == 0)
+        if not in_window:
+            return jsonify({
+                "success": False,
+                "error": "预选仅允许在 15:00~21:00 执行",
+                "candidates": [],
+            })
+
+        # 今天已预选过则拒绝
+        with AUCTION_PICK_LOCK:
+            existing_time = AUCTION_PICK_DATA.get('preselect_time')
+        if existing_time:
+            try:
+                existing_dt = datetime.strptime(existing_time, '%Y-%m-%d %H:%M:%S')
+                if existing_dt.date() == now.date():
+                    return jsonify({
+                        "success": False,
+                        "error": "今日已预选，每日仅限一次",
+                        "candidates": [],
+                    })
+            except Exception:
+                pass
+
         candidates = _get_auction_candidates()
 
         with AUCTION_PICK_LOCK:
@@ -258,27 +294,44 @@ def api_auction_preselect():
         return jsonify({
             "success": True,
             "candidate_count": len(candidates),
+            "candidates": candidates,
             "preselect_time": now.strftime('%Y-%m-%d %H:%M:%S'),
         })
     except Exception as e:
         log.error(f"竞价预选失败: {e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)})
+        return jsonify({"success": False, "error": str(e), "candidates": []})
 
 
 @auction_bp.route("/api/auction_status")
 def api_auction_status():
     now = datetime.now()
     current_hour = now.hour
-    can_preselect = 9 <= current_hour <= 22
+    current_minute = now.minute
 
+    # 预选窗口: 15:00~21:00
+    in_preselect_window = (current_hour == 15) or (16 <= current_hour <= 20) or (current_hour == 21 and current_minute == 0)
+
+    # 判断今日是否已预选
+    preselect_done_today = False
     with AUCTION_PICK_LOCK:
         data = dict(AUCTION_PICK_DATA) if AUCTION_PICK_DATA else {}
+    existing_time = data.get('preselect_time')
+    if existing_time:
+        try:
+            existing_dt = datetime.strptime(existing_time, '%Y-%m-%d %H:%M:%S')
+            preselect_done_today = existing_dt.date() == now.date()
+        except Exception:
+            pass
+
+    # 按钮可用 = 在窗口内 且 今日未预选
+    can_preselect = in_preselect_window and not preselect_done_today
 
     return jsonify({
         "success": True,
         "can_preselect": can_preselect,
+        "in_preselect_window": in_preselect_window,
+        "preselect_done_today": preselect_done_today,
         "candidate_count": len(data.get('candidate_pool', [])),
-        "preselect_done_today": bool(data.get('candidate_pool')),
         "preselect_time": data.get('preselect_time'),
     })
 
@@ -405,8 +458,8 @@ def _get_auction_candidates():
                     if "ST" in name or "退" in name or "*" in name:
                         continue
 
-                    change_pct = float(s.get("changepercent", 0)) / 100
-                    if change_pct < -0.05 or change_pct > 0.095:
+                    change_pct = float(s.get("changepercent", 0))  # Keep as percentage (e.g., 8.69 for 8.69%)
+                    if change_pct < -5 or change_pct > 9.5:
                         continue
 
                     circ_cap = float(s.get("nmc", 0)) / 10000
@@ -492,8 +545,8 @@ def _get_auction_candidates():
                                 if "ST" in name or "退" in name or "*" in name:
                                     continue
 
-                                change_pct = float(s.get("changepercent", 0)) / 100
-                                if change_pct < -0.08 or change_pct > 0.095:
+                                change_pct = float(s.get("changepercent", 0))  # Keep as percentage (e.g., 8.69 for 8.69%)
+                                if change_pct < -8 or change_pct > 9.5:
                                     continue
 
                                 circ_cap = float(s.get("nmc", 0)) / 10000
@@ -545,6 +598,25 @@ def _get_auction_candidates():
                     pass
 
         log.info(f"竞价候选池: {len(candidates)}只")
+
+        # 批量获取行业信息
+        if candidates:
+            from concurrent.futures import ThreadPoolExecutor
+            from modules.data_fetcher import get_stock_industry
+
+            def _fetch_industry(stock):
+                try:
+                    info = get_stock_industry(stock["code"])
+                    stock["industry"] = info.get("industry", "未知")
+                    stock["sector"] = info.get("sector_type", "default")
+                except Exception:
+                    stock["industry"] = "未知"
+                    stock["sector"] = "default"
+
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                list(executor.map(_fetch_industry, candidates))
+            log.info(f"行业信息获取完成: {sum(1 for c in candidates if c.get('industry', '未知') != '未知')}/{len(candidates)}")
+
         return candidates
 
     except Exception as e:
@@ -597,9 +669,10 @@ def _execute_auction_pick():
         min_gap = 0.02 if idx_gap > 0.015 else 0.01
 
         for stock in candidates:
-            gap_ok = min_gap <= stock.get('gap_pct', 0) <= 0.045
-            volume_ratio_ok = 1.8 <= stock.get('volume_ratio', 0) <= 5
-            auction_amount_ok = stock.get('auction_amount_pct', 0) >= 0.03
+            # 放宽过滤条件：允许更高高开、更低量比要求
+            gap_ok = min_gap <= stock.get('gap_pct', 0) <= 0.065
+            volume_ratio_ok = 0.5 <= stock.get('volume_ratio', 0) <= 10
+            auction_amount_ok = stock.get('auction_amount_pct', 0) >= 0.01
             stronger_than_market = stock.get('gap_pct', 0) > idx_gap
 
             if gap_ok and volume_ratio_ok and auction_amount_ok and stronger_than_market:
@@ -616,19 +689,7 @@ def _execute_auction_pick():
                 confirmed_stocks.append(stock)
 
         confirmed_stocks.sort(key=lambda x: x.get('score', 0), reverse=True)
-        confirmed_stocks = confirmed_stocks[:3]
-
-        # 添加行业信息
-        if confirmed_stocks:
-            from modules.data_fetcher import get_stock_industry
-            for stock in confirmed_stocks:
-                try:
-                    info = get_stock_industry(stock["code"])
-                    stock["industry"] = info.get("industry", "其他")
-                    stock["sector"] = info.get("sector_type", "default")
-                except Exception:
-                    stock["industry"] = "其他"
-                    stock["sector"] = "default"
+        confirmed_stocks = confirmed_stocks[:5]
 
         with AUCTION_PICK_LOCK:
             AUCTION_PICK_DATA['stocks'] = confirmed_stocks

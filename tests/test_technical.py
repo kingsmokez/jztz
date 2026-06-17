@@ -91,3 +91,60 @@ class TestEvaluateTechnical:
     def test_insufficient_data(self):
         score = evaluate_technical([1, 2, 3])
         assert score == 0
+
+
+class TestNewIndicatorsIntegration:
+    """Tests for P0-5: new indicators (OBV, VWAP, Boll width, multi-RSI, ATR)"""
+
+    def test_calc_atr(self):
+        """ATR 计算正确"""
+        from modules.technical import calc_atr
+        highs = [10, 11, 12, 11, 10, 11, 12, 13, 12, 11, 10, 11, 12, 11, 10]
+        lows = [8, 9, 10, 9, 8, 9, 10, 11, 10, 9, 8, 9, 10, 9, 8]
+        closes = [9, 10, 11, 10, 9, 10, 11, 12, 11, 10, 9, 10, 11, 10, 9]
+        atr = calc_atr(highs, lows, closes, period=14)
+        assert atr is not None
+        assert atr > 0
+
+    def test_calc_atr_insufficient_data(self):
+        """数据不足时返回None"""
+        from modules.technical import calc_atr
+        atr = calc_atr([10, 11], [8, 9], [9, 10], period=14)
+        assert atr is None
+
+    def test_evaluate_technical_score_with_obv(self):
+        """OBV bullish 趋势应获得加分"""
+        from modules.technical import evaluate_technical_score
+        tech_data = {"ma_signal": "bull", "macd_signal": "golden_cross",
+                     "rsi": 45, "boll_position": 0.3, "change_5d": 0,
+                     "obv_trend": "bullish"}
+        score, reasons = evaluate_technical_score("000001", tech_data)
+        assert score >= 5  # MA(3) + MACD(3) + OBV(2) = 8
+        assert any("OBV" in r for r in reasons)
+
+    def test_evaluate_technical_score_with_boll_width_squeeze(self):
+        """布林带收敛应获得加分"""
+        from modules.technical import evaluate_technical_score
+        tech_data = {"ma_signal": "bull", "macd_signal": "neutral",
+                     "rsi": 50, "boll_position": 0.5, "change_5d": 0,
+                     "boll_width_pct": 3.5}
+        score, reasons = evaluate_technical_score("000001", tech_data)
+        assert any("收敛" in r for r in reasons)
+
+    def test_evaluate_technical_score_with_multi_rsi_oversold(self):
+        """多周期RSI超卖共振应获得加分"""
+        from modules.technical import evaluate_technical_score
+        tech_data = {"ma_signal": "unknown", "macd_signal": "neutral",
+                     "rsi": 25, "boll_position": 0.5, "change_5d": -8,
+                     "rsi_6": 20, "rsi_12": 35, "rsi_24": 45}
+        score, reasons = evaluate_technical_score("000001", tech_data)
+        assert any("共振" in r for r in reasons)
+
+    def test_evaluate_technical_score_with_vwap_support(self):
+        """价格贴近VWAP应获得加分"""
+        from modules.technical import evaluate_technical_score
+        tech_data = {"ma_signal": "unknown", "macd_signal": "neutral",
+                     "rsi": 50, "boll_position": 0.5, "change_5d": 0,
+                     "vwap": 10.05, "price": 10.0, "ma5": 10.0}
+        score, reasons = evaluate_technical_score("000001", tech_data)
+        assert any("VWAP" in r for r in reasons)

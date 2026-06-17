@@ -30,8 +30,9 @@ Performance model
 * All-in / all-out: each rebalance sells 100 % of current positions
   then re-allocates equally across the new top-N.
 * Cash is held between rebalances.
-* No transaction costs, slippage, taxes, or dividends. Add these
-  in v20 by extending :class:`BacktestConfig` with cost fields.
+* Transaction costs (commission, stamp tax, slippage) are applied
+  per trade via :class:`BacktestConfig` cost fields. Defaults model
+  realistic A-share trading costs.
 
 Why pure-Python?
     The HTTP layer can swap in any price source at the
@@ -74,6 +75,11 @@ class BacktestConfig:
     trading_days_per_year: int = 252
     min_history: int = 1                # min price-history length per code
     name: str = ""                      # human label (optional)
+    stop_loss_pct: float = 0.0          # 0 = disabled, e.g. 0.08 = 8% stop-loss
+    take_profit_pct: float = 0.0         # 0 = disabled, e.g. 0.15 = 15% take-profit
+    commission_rate: float = 0.00025    # 佣金率 0.025%
+    stamp_tax_rate: float = 0.0005      # 印花税率 0.05% (sell only)
+    slippage: float = 0.001             # 滑点 0.1%
 
     def validate(self) -> None:
         if self.initial_capital <= 0:
@@ -86,6 +92,13 @@ class BacktestConfig:
             raise ConfigError("risk_free_rate must be in [0, 1)")
         if self.trading_days_per_year < 1:
             raise ConfigError("trading_days_per_year must be >= 1")
+        for name, val in [
+            ("commission_rate", self.commission_rate),
+            ("stamp_tax_rate", self.stamp_tax_rate),
+            ("slippage", self.slippage),
+        ]:
+            if not (0.0 <= val < 0.01):
+                raise ConfigError(f"{name} must be in [0, 0.01)")
 
 
 # ---------------------------------------------------------------------------
@@ -117,6 +130,8 @@ class Trade:
     price: float
     amount: float            # shares * price
     cash_after: float
+    effective_price: Optional[float] = None   # price after transaction costs
+    cost: Optional[float] = None              # |effective_amount - shares*price|
 
 
 @dataclass
@@ -183,6 +198,7 @@ def _metric_block(
     equity: List[Dict[str, Any]],
     trades: List[Dict[str, Any]],
     cfg: BacktestConfig,
+    total_costs: float = 0.0,
 ) -> Dict[str, Any]:
     """Compute summary metrics from the equity curve and trade log."""
     if len(equity) < 2:
@@ -195,6 +211,8 @@ def _metric_block(
             "trading_days": 0,
             "trades": 0,
             "turnover_per_rebalance": 0.0,
+            "total_cost_pct": 0.0,
+            "total_cost_amount": 0.0,
         }
 
     start = equity[0]["value"]
@@ -276,6 +294,14 @@ def _metric_block(
     else:
         avg_turnover = 0.0
 
+    # Transaction cost metrics
+    total_cost_pct = (
+        round(total_costs / cfg.initial_capital * 100.0, 4)
+        if cfg.initial_capital > 0
+        else 0.0
+    )
+    total_cost_amount = round(total_costs, 2)
+
     return {
         "total_return_pct": round(total_return * 100.0, 4),
         "annualized_return_pct": round(annualized * 100.0, 4),
@@ -285,6 +311,8 @@ def _metric_block(
         "trading_days": days,
         "trades": len(trades),
         "turnover_per_rebalance": round(avg_turnover, 4),
+        "total_cost_pct": total_cost_pct,
+        "total_cost_amount": total_cost_amount,
     }
 
 
@@ -328,8 +356,14 @@ def run(input_: BacktestInput) -> BacktestResult:
     holdings: Dict[str, int] = {}
     equity: List[Dict[str, Any]] = []
     trades: List[Dict[str, Any]] = []
+    total_costs = 0.0
     started_at = ""
     ended_at = ""
+
+    # Unpack cost parameters for readability
+    commission_rate = cfg.commission_rate
+    stamp_tax_rate = cfg.stamp_tax_rate
+    slippage = cfg.slippage
 
     rebal_set_sorted = sorted(rebal_set)
 
@@ -354,13 +388,27 @@ def run(input_: BacktestInput) -> BacktestResult:
                 p = prices.get(code)
                 if p is None or p <= 0 or shares <= 0:
                     continue
-                proceeds = shares * p
-                cash += proceeds
+                nominal_amount = shares * p
+                # Selling: effective price reduced by commission + stamp tax + slippage
+                effective_price = p * (1.0 - commission_rate - stamp_tax_rate - slippage)
+                effective_amount = shares * effective_price
+                # A股最低佣金5元：重新计算含最低佣金的实际成本
+                actual_sell_commission = (
+                    max(nominal_amount * commission_rate, 5.0)
+                    if commission_rate > 0 else 0.0
+                )
+                actual_stamp_tax = nominal_amount * stamp_tax_rate
+                actual_slippage = nominal_amount * slippage
+                trade_cost = actual_sell_commission + actual_stamp_tax + actual_slippage
+                total_costs += trade_cost
+                cash += nominal_amount - trade_cost
                 trades.append({
                     "date": d, "side": "sell", "code": code,
                     "shares": shares, "price": round(p, 4),
-                    "amount": round(proceeds, 2),
+                    "amount": round(nominal_amount, 2),
                     "cash_after": round(cash, 2),
+                    "effective_price": round(effective_price, 4),
+                    "cost": round(trade_cost, 2),
                 })
             holdings = {}
 
@@ -380,20 +428,33 @@ def run(input_: BacktestInput) -> BacktestResult:
                     p = prices.get(code)
                     if p is None or p <= 0:
                         continue
-                    shares = int(per // p)
+                    # Buying: effective price increased by commission + slippage
+                    effective_price = p * (1.0 + commission_rate + slippage)
+                    shares = int(per // effective_price)
                     if shares <= 0:
                         continue
-                    cost = shares * p
-                    cash -= cost
+                    nominal_amount = shares * p
+                    effective_amount = shares * effective_price
+                    # A股最低佣金5元：重新计算含最低佣金的实际成本
+                    actual_buy_commission = (
+                        max(nominal_amount * commission_rate, 5.0)
+                        if commission_rate > 0 else 0.0
+                    )
+                    actual_slippage = nominal_amount * slippage
+                    trade_cost = actual_buy_commission + actual_slippage
+                    total_costs += trade_cost
+                    cash -= nominal_amount + trade_cost
                     holdings[code] = shares
                     trades.append({
                         "date": d, "side": "buy", "code": code,
                         "shares": shares, "price": round(p, 4),
-                        "amount": round(cost, 2),
+                        "amount": round(nominal_amount, 2),
                         "cash_after": round(cash, 2),
+                        "effective_price": round(effective_price, 4),
+                        "cost": round(trade_cost, 2),
                     })
 
-    metrics = _metric_block(equity, trades, cfg)
+    metrics = _metric_block(equity, trades, cfg, total_costs)
     return BacktestResult(
         id=f"bt_{int(time.time())}_{uuid.uuid4().hex[:8]}",
         name=cfg.name,

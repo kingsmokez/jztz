@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import threading
 import time
@@ -35,8 +36,61 @@ AUCTION_PICK_DATA: Optional[list[dict]] = None
 WP2_PICK_DATA: Optional[list[dict]] = None
 STRONG_PICK_DATA: Optional[list[dict]] = None
 
+_CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+_DAILY_CACHE_FILE = os.path.join(_CACHE_DIR, "daily_pick_raw_cache.json")
+_AUCTION_CACHE_FILE = os.path.join(_CACHE_DIR, "auction_pick_cache.json")
+_WP2_CACHE_FILE = os.path.join(_CACHE_DIR, "wp2_pick_cache.json")
+_STRONG_CACHE_FILE = os.path.join(_CACHE_DIR, "strong_pick_cache.json")
+
 _config = load_config()
 _scheduler_started = False
+
+
+def _save_cache(filename: str, data: Any) -> None:
+    try:
+        os.makedirs(_CACHE_DIR, exist_ok=True)
+        filepath = os.path.join(_CACHE_DIR, filename)
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, default=str)
+        log.debug(f"缓存已保存: {filename}")
+    except Exception as e:
+        log.warning(f"缓存保存失败: {filename}, {e}")
+
+
+def _load_cache(filename: str) -> Any:
+    try:
+        filepath = os.path.join(_CACHE_DIR, filename)
+        if os.path.exists(filepath):
+            with open(filepath, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            # V5.5: Filter ROE<0 stocks from all caches
+            if isinstance(data, list):
+                data = [r for r in data
+                        if not (isinstance(r.get('roe'), (int, float)) and r.get('roe') < 0)]
+            elif isinstance(data, dict):
+                for key in ['stocks', 'results', 'morning', 'afternoon']:
+                    sub = data.get(key)
+                    if isinstance(sub, list):
+                        data[key] = [r for r in sub
+                                     if not (isinstance(r.get('roe'), (int, float)) and r.get('roe') < 0)]
+                    elif isinstance(sub, dict) and 'results' in sub:
+                        data[key]['results'] = [r for r in sub['results']
+                                                if not (isinstance(r.get('roe'), (int, float)) and r.get('roe') < 0)]
+            log.info(f"缓存已加载: {filename}")
+            return data
+    except Exception as e:
+        log.warning(f"缓存加载失败: {filename}, {e}")
+    return None
+
+
+def _restore_all_caches() -> None:
+    global DAILY_PICK_DATA, AUCTION_PICK_DATA, WP2_PICK_DATA, STRONG_PICK_DATA
+    with _picker_lock:
+        DAILY_PICK_DATA = _load_cache("daily_pick_raw_cache.json")
+        AUCTION_PICK_DATA = _load_cache("auction_pick_cache.json")
+        WP2_PICK_DATA = _load_cache("wp2_pick_cache.json")
+        STRONG_PICK_DATA = _load_cache("strong_pick_cache.json")
+    log.info("缓存恢复完成")
 
 
 def create_app() -> Flask:
@@ -78,6 +132,7 @@ def create_app() -> Flask:
                         "daily": get_picker_data() is not None,
                         "auction": get_auction_data() is not None,
                         "wp2": get_wp2_data() is not None,
+                        "strong": get_strong_data() is not None,
                     }
                     yield f"event: update\ndata: {json.dumps(data)}\n\n"
                     # 5s sleep 分片, 让断开检测 < 1s 生效
@@ -163,6 +218,24 @@ def _setup_rate_limit(app: Flask) -> None:
         return None
 
 
+def _run_auction_preselect_check() -> None:
+    """每分钟检查是否到15:30，自动执行竞价预选"""
+    from datetime import datetime
+    now = datetime.now()
+    # 只在15:30触发
+    if now.hour != 15 or now.minute != 30:
+        return
+    # 周末不执行
+    if now.weekday() >= 5:
+        return
+    try:
+        from routes.auction import auto_auction_preselect
+        auto_auction_preselect()
+        log.info("15:30自动竞价预选完成")
+    except Exception as e:
+        log.error(f"15:30自动竞价预选失败: {e}")
+
+
 def start_scheduler() -> None:
     """启动后台调度器 - 只在main中调用"""
     global _scheduler_started
@@ -176,6 +249,7 @@ def start_scheduler() -> None:
     scheduler.add_job("auction_picker", run_auction_picker, interval_seconds=60)
     scheduler.add_job("wp2_picker", run_wp2_picker, interval_seconds=300)
     scheduler.add_job("strong_picker", run_strong_picker, interval_seconds=300)
+    scheduler.add_job("auction_preselect", _run_auction_preselect_check, interval_seconds=60)
     scheduler.start_background()
     log.info("后台调度已启动")
 
@@ -214,6 +288,7 @@ def run_daily_picker() -> list[dict]:
         result = run_picker()
         with _picker_lock:
             DAILY_PICK_DATA = result
+        _save_cache("daily_pick_raw_cache.json", result)
         log.info(f"每日选股完成: {len(result)} 只")
         return result
     except Exception as e:
@@ -227,6 +302,7 @@ def run_auction_picker() -> list[dict]:
         result = _run()
         with _picker_lock:
             AUCTION_PICK_DATA = result
+        _save_cache("auction_pick_cache.json", result)
         log.info(f"集合竞价选股完成: {len(result)} 只")
         return result
     except Exception as e:
@@ -240,6 +316,7 @@ def run_wp2_picker() -> list[dict]:
         result = _run()
         with _picker_lock:
             WP2_PICK_DATA = result
+        _save_cache("wp2_pick_cache.json", result)
         log.info(f"WP2选股完成: {len(result)} 只")
         return result
     except Exception as e:
@@ -253,6 +330,7 @@ def run_strong_picker() -> list[dict]:
         result = run_strong_stock_picker()
         with _picker_lock:
             STRONG_PICK_DATA = result
+        _save_cache("strong_pick_cache.json", result)
         log.info(f"强势选股完成: {len(result)} 只")
         return result
     except Exception as e:
@@ -297,6 +375,8 @@ def _setup_request_logging(app: Flask) -> None:
 # === 入口 ===
 
 app = create_app()
+
+_restore_all_caches()
 
 if __name__ == "__main__":
     sys.modules["web_app"] = sys.modules["__main__"]

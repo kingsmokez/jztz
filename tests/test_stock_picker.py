@@ -36,14 +36,19 @@ def test_run_picker_filters_st_stocks():
     with patch("modules.stock_picker.get_realtime_quotes", return_value=quotes), \
          patch("modules.stock_picker.get_financial_data", return_value={}), \
          patch("modules.stock_picker.get_preset_financials", return_value={}), \
-         patch("modules.technical.calculate_technical_indicators", return_value={}):
+         patch("modules.technical.calculate_technical_indicators", return_value={}), \
+         patch("modules.stock_picker.evaluate_stock", return_value={
+             "score": 80, "v5_score": 80, "v5_factors": {}, "v5_reasons": [],
+             "v5_recommendation": "关注", "dimensions": {}, "buy_sell": None,
+             "reasons": [], "industry": "测试", "sector_type": "default",
+         }):
         result = run_picker(top_n=10)
     # Only the non-ST stock may remain
     codes = {r["code"] for r in result}
     assert "000001" not in codes
 
 
-def test_run_picker_filters_bse_and_star_market():
+def test_run_picker_filters_bse_but_keeps_star_market():
     quotes = {
         "920001": _make_quote("920001", "BSE股"),  # BSE 9xx
         "688001": _make_quote("688001", "科创板"),
@@ -53,11 +58,16 @@ def test_run_picker_filters_bse_and_star_market():
     with patch("modules.stock_picker.get_realtime_quotes", return_value=quotes), \
          patch("modules.stock_picker.get_financial_data", return_value={}), \
          patch("modules.stock_picker.get_preset_financials", return_value={}), \
-         patch("modules.technical.calculate_technical_indicators", return_value={}):
+         patch("modules.technical.calculate_technical_indicators", return_value={}), \
+         patch("modules.stock_picker.evaluate_stock", return_value={
+             "score": 80, "v5_score": 80, "v5_factors": {}, "v5_reasons": [],
+             "v5_recommendation": "关注", "dimensions": {}, "buy_sell": None,
+             "reasons": [], "industry": "测试", "sector_type": "default",
+         }):
         result = run_picker(top_n=10)
     codes = {r["code"] for r in result}
     assert "920001" not in codes
-    assert "688001" not in codes
+    assert "688001" in codes
     assert "400001" not in codes
 
 

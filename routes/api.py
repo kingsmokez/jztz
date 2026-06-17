@@ -189,6 +189,24 @@ def api_search_stock_get():
 
         matched_stocks = [s for s in matched_stocks if s.get("price", 0) > 0]
 
+        # 3.5. 批量获取财务数据（补全roe/gross_margin等，让评分有意义）
+        if matched_stocks:
+            try:
+                from modules.data_fetcher import get_financial_data
+                fin_codes = [s["code"] for s in matched_stocks]
+                fin_map = get_financial_data(fin_codes)
+                for ms in matched_stocks:
+                    fin = fin_map.get(ms["code"])
+                    if fin:
+                        ms["roe"] = fin.roe
+                        ms["gross_margin"] = fin.gross_margin
+                        ms["net_margin"] = fin.net_margin
+                        ms["rev_growth"] = fin.revenue_growth
+                        ms["profit_growth"] = fin.profit_growth
+                        ms["debt_ratio"] = fin.debt_ratio
+            except Exception as fe:
+                log.warning(f"搜索: 财务数据获取失败: {fe}")
+
         # 4. 评分
         results = []
         for stock in matched_stocks:
@@ -334,6 +352,14 @@ def api_pick_compare():
     except Exception as e:
         log.error(f"对比错误: {e}", exc_info=True)
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+@api_bp.route("/api/market_env")
+def api_market_env():
+    """市场环境状态接口，供前端判断是否弹风险提示"""
+    from modules.market_env import get_market_env
+    env = get_market_env()
+    return jsonify(env.to_dict())
 
 
 @api_bp.route("/api/market")
@@ -1056,11 +1082,205 @@ def api_auction_compare_get():
 
 @api_bp.route("/api/auction_compare_execute")
 def api_auction_compare_execute():
-    """执行集合竞价对比选股"""
+    """执行集合竞价对比选股（优化版v2 vs 优化版v3）
+
+    v2: 五维评分 + 老版买卖点(固定折扣/固定上限/无行业PE/无tech_data)
+    v3: 五维评分 + V4买卖点(行业PE/多因子upside/技术动态折扣) + 热点因子 + 板块轮动
+    """
+    import time
     try:
-        from modules.auction_picker import run_auction_picker
-        result = run_auction_picker()
-        return api_success(result)
+        from modules.auction_picker import get_auction_candidates, filter_eligible_stocks, _get_auction_stocks
+
+        start_time = time.time()
+
+        # 共享候选池
+        candidates = get_auction_candidates()
+        if len(candidates) < 10:
+            backup = _get_auction_stocks()
+            if backup:
+                existing_codes = {c["code"] for c in candidates}
+                for b in backup:
+                    if b["code"] not in existing_codes:
+                        candidates.append(b)
+        if not candidates:
+            # 非交易时段：用全市场
+            from modules.data_fetcher import get_realtime_quotes
+            all_quotes = get_realtime_quotes()
+            candidates = []
+            for code, q in all_quotes.items():
+                name = q.name or ''
+                if 'ST' in name or '*' in name: continue
+                if code.startswith('9') or code.startswith('8') or code.startswith('4'): continue
+                if q.price <= 1: continue
+                candidates.append({'code': code, 'name': q.name, 'price': q.price})
+
+        from modules.data_fetcher import get_realtime_quotes, get_financial_data
+        from modules.scoring import evaluate_stock, calculate_buy_sell, get_hot_sectors_and_news, calculate_hot_factor
+        from modules.technical import calculate_technical_indicators
+
+        codes = [c["code"] for c in candidates]
+        quotes = get_realtime_quotes(codes)
+        eligible = filter_eligible_stocks(quotes)
+        if not eligible:
+            return api_error("无合格股票")
+
+        financials = get_financial_data(list(eligible.keys()))
+
+        # v3: 热点板块
+        try:
+            hot_sectors, hot_keywords = get_hot_sectors_and_news()
+        except Exception:
+            hot_sectors, hot_keywords = {}, set()
+
+        priority_sectors = []
+        if hot_sectors:
+            for sn, cp in hot_sectors.items():
+                b = 10 if cp >= 3 else 6 if cp >= 2 else 3 if cp >= 1 else 1
+                priority_sectors.append((sn, cp, b))
+
+        v2_stocks = []
+        v3_stocks = []
+
+        for code, q in eligible.items():
+            f = financials.get(code)
+            roe = f.roe if f else 0
+            gross_margin = f.gross_margin if f else 0
+            net_margin = f.net_margin if f else 0
+            rev_growth = f.revenue_growth if f else 0
+            profit_growth = f.profit_growth if f else 0
+            debt_ratio = f.debt_ratio if f else 0
+            pb = q.pb
+            if pb <= 0 and q.pe > 0 and roe > 0:
+                pb = round(q.pe * roe / 100, 2)
+            stock_dict = {
+                'code': code, 'name': q.name, 'price': q.price,
+                'change_pct': q.change_pct, 'pe': q.pe, 'pb': pb,
+                'market_cap': q.market_cap, 'turnover_rate': q.turnover,
+                'amount': q.amount, 'roe': roe, 'gross_margin': gross_margin,
+                'net_margin': net_margin, 'rev_growth': rev_growth,
+                'profit_growth': profit_growth, 'debt_ratio': debt_ratio,
+            }
+            try:
+                tech_data = calculate_technical_indicators(code, days=30)
+            except Exception:
+                tech_data = None
+
+            # === v2: 不带热点，老版买卖点(无tech_data) ===
+            r2 = evaluate_stock(stock_dict, tech_data=tech_data, priority_sectors=None)
+            if r2 and r2.get('score', 0) >= 60:
+                # v2用老版买卖点: 固定折扣/固定上限/无行业PE
+                buy_sell_v2 = calculate_buy_sell(stock_dict, r2.get('v5_score', 0))
+                if buy_sell_v2:
+                    r2['buy_sell'] = buy_sell_v2
+                    v2_stocks.append(r2)
+
+            # === v3: 带热点+板块轮动，V4买卖点(带tech_data) ===
+            try:
+                r3 = evaluate_stock(stock_dict, tech_data=tech_data, priority_sectors=priority_sectors[:15])
+            except Exception:
+                r3 = None
+            if r3 and r3.get('score', 0) >= 60:
+                # v3用V4买卖点: 行业PE/多因子/技术动态折扣
+                buy_sell_v3 = calculate_buy_sell(stock_dict, r3.get('v5_score', 0), tech_data=tech_data)
+                if buy_sell_v3:
+                    r3['buy_sell'] = buy_sell_v3
+                    # v3热点标签
+                    try:
+                        hot_bonus, hot_reasons = calculate_hot_factor(code, q.name, hot_sectors, hot_keywords)
+                        if hot_bonus > 0:
+                            r3['hot_bonus'] = hot_bonus
+                            r3['hot_reasons'] = hot_reasons
+                    except Exception:
+                        pass
+                    v3_stocks.append(r3)
+
+        v2_stocks.sort(key=lambda x: x.get('v5_score', 0), reverse=True)
+        v2_stocks = v2_stocks[:20]
+        v3_stocks.sort(key=lambda x: x.get('v5_score', 0), reverse=True)
+        v3_stocks = v3_stocks[:20]
+
+        # 构建对比结果
+        v2_pool_count = len(candidates)
+        v3_pool_count = len(eligible)
+        v2_stocks_count = len(v2_stocks)
+        v3_stocks_count = len(v3_stocks)
+
+        pool_diff = v3_pool_count - v2_pool_count
+        pool_increase_pct = round(pool_diff / max(v2_pool_count, 1) * 100, 1) if v2_pool_count > 0 else 0
+        stocks_diff = v3_stocks_count - v2_stocks_count
+        stocks_increase_pct = round(stocks_diff / max(v2_stocks_count, 1) * 100, 1) if v2_stocks_count > 0 else 0
+
+        now = datetime.now()
+        in_trading_hours = 9 <= now.hour <= 15 and now.minute <= 30
+
+        # v2/v3买卖点对比统计
+        v2_buy_avg = np.mean([s['buy_sell']['buy'] for s in v2_stocks if s.get('buy_sell')]) if v2_stocks else 0
+        v3_buy_avg = np.mean([s['buy_sell']['buy'] for s in v3_stocks if s.get('buy_sell')]) if v3_stocks else 0
+        v2_sell_avg = np.mean([s['buy_sell']['sell'] for s in v2_stocks if s.get('buy_sell')]) if v2_stocks else 0
+        v3_sell_avg = np.mean([s['buy_sell']['sell'] for s in v3_stocks if s.get('buy_sell')]) if v3_stocks else 0
+
+        result_data = {
+            "comparison": {
+                "pool_diff": pool_diff,
+                "pool_increase_pct": pool_increase_pct,
+                "stocks_diff": stocks_diff,
+                "stocks_increase_pct": stocks_increase_pct,
+                "v2_buy_avg": round(v2_buy_avg, 2),
+                "v3_buy_avg": round(v3_buy_avg, 2),
+                "v2_sell_avg": round(v2_sell_avg, 2),
+                "v3_sell_avg": round(v3_sell_avg, 2),
+            },
+            "original": {
+                "pool_count": v2_pool_count,
+                "stocks_count": v2_stocks_count,
+                "pool": candidates[:50],
+                "stocks": v2_stocks,
+            },
+            "optimized": {
+                "pool_count": v3_pool_count,
+                "stocks_count": v3_stocks_count,
+                "pool": list(eligible.values())[:50] if eligible else [],
+                "stocks": v3_stocks,
+            },
+            "execute_time": f"{time.time() - start_time:.1f}秒",
+            "in_trading_hours": in_trading_hours,
+        }
+
+        return api_success(result_data)
+    except Exception as e:
+        import numpy as np
+        log.error(f"集合竞价对比执行失败: {e}", exc_info=True)
+        return api_error(f"执行失败: {e}")
+        stocks_diff = v3_stocks_count - v2_stocks_count
+        stocks_increase_pct = round(stocks_diff / max(v2_stocks_count, 1) * 100, 1) if v2_stocks_count > 0 else 0
+
+        now = datetime.now()
+        in_trading_hours = 9 <= now.hour <= 15 and now.minute <= 30
+
+        result_data = {
+            "comparison": {
+                "pool_diff": pool_diff,
+                "pool_increase_pct": pool_increase_pct,
+                "stocks_diff": stocks_diff,
+                "stocks_increase_pct": stocks_increase_pct,
+            },
+            "original": {
+                "pool_count": v2_pool_count,
+                "stocks_count": v2_stocks_count,
+                "pool": v2_candidates[:50],
+                "stocks": v2_stocks,
+            },
+            "optimized": {
+                "pool_count": v3_pool_count,
+                "stocks_count": v3_stocks_count,
+                "pool": list(eligible_v3.values())[:50] if eligible_v3 else [],
+                "stocks": v3_stocks,
+            },
+            "execute_time": f"{time.time() - start_time:.1f}秒",
+            "in_trading_hours": in_trading_hours,
+        }
+
+        return api_success(result_data)
     except Exception as e:
         log.error(f"集合竞价对比执行失败: {e}", exc_info=True)
         return api_error(f"执行失败: {e}")
@@ -1106,6 +1326,12 @@ def api_cb_arbitrage():
             if len(all_cb_rows) >= total_count or len(rows) < 500:
                 break
             page += 1
+
+        # 去重：东方财富 RPT_BOND_CB_LIST 在分页边界处可能返回重复行，
+        # 同一转债会与正股成对重复出现。按 SECURITY_CODE 保序去重。
+        all_cb_rows = list(
+            {r.get("SECURITY_CODE"): r for r in all_cb_rows if r.get("SECURITY_CODE")}.values()
+        )
 
         if not all_cb_rows:
             return jsonify({"error": "无法获取可转债数据", "data": [], "update_time": datetime.now().strftime("%H:%M:%S")})
@@ -1205,6 +1431,14 @@ def api_cb_arbitrage():
             if tp <= 0 or bp <= 0 or sp <= 0:
                 continue
 
+            # 跳过已退市/停止交易：成交量与成交额均为0说明不再交易
+            bvol = bq.get("volume", 0) or 0
+            bamt = bq.get("amount", 0) or 0
+            svol = sq.get("volume", 0) or 0
+            samt = sq.get("amount", 0) or 0
+            if (bvol == 0 and bamt == 0) or (svol == 0 and samt == 0):
+                continue
+
             cv = round((100 / tp * sp), 4)
             pr = round(((bp / cv - 1) * 100), 2) if cv > 0 else None
             # 涨幅差值 = 转债涨跌幅 - 正股涨跌幅
@@ -1229,6 +1463,18 @@ def api_cb_arbitrage():
             })
 
         items.sort(key=lambda x: x.get("diff") or -999, reverse=True)
+
+        # 同一正股若对应多只可转债（不同 bond_code），只保留 diff 最大的那只。
+        # items 已按 diff 降序，遍历时跳过已出现的 stock_code 即可。
+        _seen_stock = set()
+        _unique_items = []
+        for _it in items:
+            _sc = _it.get("stock_code", "")
+            if _sc in _seen_stock:
+                continue
+            _seen_stock.add(_sc)
+            _unique_items.append(_it)
+        items = _unique_items
 
         # 为正股补全 industry 字段（前端模板有期望，API 之前未提供）
         def _attach_industry(item):

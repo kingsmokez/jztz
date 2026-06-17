@@ -26,7 +26,7 @@ def test_health_returns_components(client):
     r = client.get("/api/health")
     assert r.status_code == 200
     data = r.get_json()
-    assert data["version"] == "v20"
+    assert data["version"] == "v17"
     assert "components" in data
     for name in ("eastmoney", "filesystem", "cache"):
         assert name in data["components"]

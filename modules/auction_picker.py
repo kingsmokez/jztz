@@ -29,9 +29,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Any, Optional
 
-from modules.data_fetcher import get_financial_data, get_realtime_quotes, get_stock_industry
+from modules.data_fetcher import get_financial_data, get_realtime_quotes, get_stock_industry, preload_industry_cache
 from modules.http_client import HEADERS, session
 from modules.logger import log
+from modules.market_env import get_market_env
+from modules.scoring import calculate_buy_sell
 from modules.models import filter_eligible_stocks
 from modules.scoring import full_score, rank_stocks
 
@@ -79,7 +81,9 @@ def get_market_status() -> dict[str, Any]:
                 volume = float(parts[8]) if parts[8] else 0
                 # Rough estimate: compare to average
                 if volume > 0:
-                    volume_ratio = round(volume / (volume * 0.8), 2) if volume > 0 else 1.0
+                    # Cannot compute real volume_ratio from single volume value
+                    # Use neutral default; real volume_ratio comes from candidates data
+                    volume_ratio = 1.0
             except (ValueError, IndexError):
                 pass
 
@@ -300,13 +304,13 @@ def _phase1_score(stock: dict[str, Any]) -> tuple[float, dict[str, Any]]:
     price = stock.get("price", 0)
     change_pct = stock.get("change_pct", 0)
 
-    if change_pct > 0.05:
+    if change_pct > 5:
         trend_score = 35
-    elif change_pct > 0.02:
+    elif change_pct > 2:
         trend_score = 28
     elif change_pct > 0:
         trend_score = 20
-    elif change_pct > -0.02:
+    elif change_pct > -2:
         trend_score = 10
     else:
         trend_score = 5
@@ -318,32 +322,43 @@ def _phase1_score(stock: dict[str, Any]) -> tuple[float, dict[str, Any]]:
     volume_ratio = stock.get("volume_ratio", 1.0)
     volume_score = 0.0
 
+    # 量比评分: 适度放量最佳(1.2-3), 极度放量(>5)可能是异常需降分
     if volume_ratio > 5:
-        volume_score = 35
+        volume_score = 10  # 异常放量，警惕操纵或恐慌
     elif volume_ratio > 3:
-        volume_score = 30
+        volume_score = 22  # 明显放量，谨慎
     elif volume_ratio > 1.5:
-        volume_score = 25
+        volume_score = 30  # 适度放量，最佳区间
     elif volume_ratio > 1.2:
-        volume_score = 20
+        volume_score = 25  # 温和放量
     elif volume_ratio > 0.8:
-        volume_score = 10
+        volume_score = 10  # 缩量
     else:
-        volume_score = 5
+        volume_score = 5   # 严重缩量
 
     details["volume_score"] = volume_score
     details["volume_ratio"] = volume_ratio
 
-    # Position filter: price not too far from MA5 (within +/-15%)
+    # Position filter: avoid stocks that are already over-extended
+    # Prefer stocks in a reasonable range (not already limit-up or limit-down)
     position_score = 0.0
-    # Simplified: use change_pct as proxy for position relative to recent MA
-    if abs(change_pct) <= 5:
+    if 0 <= change_pct <= 5:
+        # Positive but not overextended — best position
         position_score = 30
-    elif abs(change_pct) <= 10:
-        position_score = 20
-    elif abs(change_pct) <= 15:
-        position_score = 10
+    elif -2 <= change_pct < 0:
+        # Slight pullback — could be opportunity
+        position_score = 25
+    elif 5 < change_pct <= 7:
+        # Extended but not limit-up
+        position_score = 15
+    elif -5 <= change_pct < -2:
+        # Deeper pullback
+        position_score = 15
+    elif change_pct > 7:
+        # Already overextended (near limit-up) — don't chase
+        position_score = 5
     else:
+        # Severe drop
         position_score = 5
 
     details["position_score"] = position_score
@@ -389,16 +404,17 @@ def _phase2_score(
     # Volume ratio filter: > 1.5 preferred
     volume_ratio = stock.get("volume_ratio", 1.0)
     volume_ratio_score = 0.0
+    # 量比确认: 适度放量确认趋势, 极度放量需警惕
     if volume_ratio > 5:
-        volume_ratio_score = 25
+        volume_ratio_score = 8   # 异常放量，警惕
     elif volume_ratio > 3:
-        volume_ratio_score = 22
+        volume_ratio_score = 18  # 明显放量
     elif volume_ratio > 1.5:
-        volume_ratio_score = 18
+        volume_ratio_score = 22  # 适度放量，最佳
     elif volume_ratio > 1.0:
-        volume_ratio_score = 12
+        volume_ratio_score = 15  # 温和放量
     else:
-        volume_ratio_score = 5
+        volume_ratio_score = 5   # 缩量
 
     details["volume_ratio_score"] = volume_ratio_score
 
@@ -460,6 +476,18 @@ def run_auction_picker(top_n: int = 20) -> list[dict[str, Any]]:
         - phase1_score, phase2_score, final_score
         - recommendation, market_status
     """
+    env = None
+    try:
+        env = get_market_env()
+        if not env.can_pick():
+            log.warning(f"竞价选股: 市场环境不佳(status={env.status}, trend={env.trend})，暂停选股")
+            return []
+        top_n = env.adjusted_top_n(top_n)
+        log.info(f"竞价选股: 市场环境 status={env.status}, trend={env.trend}, top_n={top_n}")
+    except Exception as e:
+        log.warning(f"竞价选股: 市场环境检测失败: {e}，使用默认参数")
+        env = None
+
     log.info("开始集合竞价选股...")
 
     # Step 1: Get market status
@@ -485,6 +513,7 @@ def run_auction_picker(top_n: int = 20) -> list[dict[str, Any]]:
         return []
 
     log.info(f"竞价选股: 共 {len(candidates)} 只候选股")
+    preload_industry_cache([c["code"] for c in candidates if c.get("code")])
 
     # Step 3: Phase 1 - Preselection scoring
     phase1_results: list[dict[str, Any]] = []
@@ -560,6 +589,81 @@ def run_auction_picker(top_n: int = 20) -> list[dict[str, Any]]:
                 stock["sector"] = "default"
         with ThreadPoolExecutor(max_workers=10) as executor:
             list(executor.map(_fetch_industry, top_results))
+
+    # Add buy/sell points + V5 evaluation + ROE filtering
+    try:
+        from modules.data_fetcher import get_financial_data
+        fin_codes = [s.get('code', '') for s in top_results if s.get('code')]
+        fin_map = get_financial_data(fin_codes)
+    except Exception:
+        fin_map = {}
+
+    for stock in top_results:
+        try:
+            from modules.technical import calculate_technical_indicators
+            from modules.scoring import multi_factor_evaluate
+            code = stock.get('code', '')
+            tech = calculate_technical_indicators(code, days=30) if code else None
+
+            # Get financial data for proper evaluation
+            fin = fin_map.get(code)
+            roe = fin.roe if fin else 0
+            pe = fin.pe if fin and fin.pe > 0 else 0
+            pb = fin.pb if fin and fin.pb > 0 else 0
+            gross_margin = fin.gross_margin if fin else 0
+            net_margin = fin.net_margin if fin else 0
+            rev_growth = fin.revenue_growth if fin else 0
+            profit_growth = fin.profit_growth if fin else 0
+            debt_ratio = fin.debt_ratio if fin else 0
+
+            stock['roe'] = roe
+            stock['pe'] = pe
+            stock['pb'] = pb
+
+            stock_for_bs = {
+                'code': code,
+                'name': stock.get('name', ''),
+                'price': stock.get('price', 0),
+                'pe': pe, 'pb': pb,
+                'market_cap': 0,
+                'turnover_rate': 0,
+                'change_pct': stock.get('change_pct', 0),
+                'roe': roe, 'gross_margin': gross_margin,
+                'net_margin': net_margin, 'rev_growth': rev_growth,
+                'profit_growth': profit_growth, 'debt_ratio': debt_ratio,
+            }
+            bs = calculate_buy_sell(stock_for_bs, stock.get('final_score', 50), tech_data=tech)
+            if bs:
+                stock['buy_sell'] = bs
+
+            # V5 multi-factor evaluation
+            try:
+                v5_result = multi_factor_evaluate(stock_for_bs)
+                if v5_result:
+                    v5_total = v5_result.get('v5_total', 0)
+                    # V5.5 ROE/Q penalty
+                    if 0 < roe < 5:
+                        v5_total *= 0.80
+                    elif 0 < roe < 8:
+                        v5_total *= 0.90
+                    q_val = v5_result.get('v5_factors', {}).get('quality', 50)
+                    if q_val < 25:
+                        v5_total *= 0.85
+                    stock['v5_score'] = round(v5_total, 1)
+                    stock['v5_factors'] = v5_result.get('v5_factors')
+                    stock['v5_reasons'] = v5_result.get('v5_reasons')
+                    stock['v5_recommendation'] = v5_result.get('v5_recommendation')
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    # V5.5: Filter out stocks with ROE < 0
+    pre_filter = len(top_results)
+    top_results = [s for s in top_results
+                   if not (isinstance(s.get('roe'), (int, float)) and s.get('roe') < 0)]
+    if len(top_results) < pre_filter:
+        log.info(f'竞价ROE过滤: {pre_filter} -> {len(top_results)}')
 
     log.info(f"竞价选股完成: 入选 {len(top_results)} 只")
     for r in top_results[:5]:

@@ -98,3 +98,35 @@ optimization_report.md
 claude-watchdog.ps1
 push_to_github.bat
 新建*.md
+
+# Screenshots and debug images
+*.png
+_screenshot.js
+
+# Debug/temp scripts
+fix_*.py
+refactor_*.py
+
+# Backtest result files (runtime generated)
+backtest_results/
+wp2/backtest_result*.json
+wp2/backtest_v*.py
+wp2/backtest_v*.txt
+wp2/backtest_simulation.py
+wp2/backtest_comparison.json
+wp2/backtest_output.txt
+wp2/analysis_result.*
+wp2/analysis_report.py
+
+# Temp pick results
+tmp_*.json
+
+# Logs directory
+logs/
+
+# OMO run-continuation sessions
+.omo/run-continuation/
+
+# Error/output text files
+*_error*.txt
+*_output*.txt

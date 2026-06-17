@@ -171,6 +171,7 @@
         .up { color: #cf4444; font-weight: 600; }
         .down { color: #2d9e5f; }
         .muted { color: #555; }
+        .hot { color: #8b5cf6; font-weight: 600; }
 
         /* 信号标签 */
         .tag {
@@ -209,6 +210,32 @@
 
         .footer-tip { text-align: center; padding: 20px; font-size: 13px; color: #444; }
 
+        /* 指标说明 */
+        .indicator-guide {
+            background: #18182a;
+            border: 1px solid #2a2a3a;
+            border-radius: 6px;
+            padding: 16px 20px;
+            margin-top: 16px;
+        }
+        .guide-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: #d4a017;
+            margin-bottom: 12px;
+        }
+        .guide-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+        .guide-item {
+            font-size: 13px;
+            color: #888;
+            line-height: 1.5;
+        }
+        .guide-item b { color: #ccc; font-weight: 600; }
+
         @media (max-width: 768px) {
             .container { padding: 16px; }
             .navbar { padding: 0 16px; }
@@ -216,6 +243,7 @@
             .page-header { flex-direction: column; align-items: flex-start; gap: 10px; }
             .pullback-bar { flex-direction: column; gap: 10px; }
             .pullback-bar .steps { flex-direction: column; gap: 6px; }
+            .guide-grid { grid-template-columns: repeat(1, 1fr); }
         }
     </style>
 </head>
@@ -309,6 +337,22 @@
         </div>
 
         <div class="footer-tip" id="updateTime"></div>
+
+        <!-- 指标说明 -->
+        <div class="indicator-guide">
+            <div class="guide-title">指标说明</div>
+            <div class="guide-grid">
+                <div class="guide-item"><b>布林位</b>：股价在布林带中的位置百分比，>80%表示接近上轨强势</div>
+                <div class="guide-item"><b>量比</b>：当日成交量与5日平均量的比值，1.5-3为温和放量最佳</div>
+                <div class="guide-item"><b>换手</b>：当日换手率，活跃股通常3%-10%</div>
+                <div class="guide-item"><b>RSI</b>：相对强弱指标，50-65为健康上涨区间，>75超买风险</div>
+                <div class="guide-item"><b>评分</b>：综合评分(技术60%+基本面40%)，>50可关注，>60优选</div>
+                <div class="guide-item"><b>信号</b>：金叉=MACD金叉，回调企稳=涨停后缩量企稳</div>
+                <div class="guide-item"><b>买入价</b>：建议买入参考价，基于布林带下轨支撑</div>
+                <div class="guide-item"><b>卖出价</b>：建议卖出参考价，基于布林带上轨阻力</div>
+                <div class="guide-item"><b>止损价</b>：止损参考价，跌破建议离场</div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -341,9 +385,7 @@
             btn.disabled = true;
             btn.textContent = '筛选中...';
 
-            document.getElementById('stocksContent').innerHTML = `
-                <div class="loading"><div class="spinner"></div><div>扫描全市场...</div></div>
-            `;
+            document.getElementById('stocksContent').innerHTML = '<div class="loading"><div class="spinner"></div><div>扫描全市场...</div></div>';
 
             try {
                 const resp = await fetch('/api/strong_pick_execute');
@@ -396,43 +438,22 @@
             document.getElementById('pickTime').textContent = data.pick_time ? '筛选时间 ' + data.pick_time : '';
             document.getElementById('updateTime').textContent = data.last_update ? '更新于 ' + data.last_update : '';
 
-            let html = `<table class="stock-table"><thead><tr>
-                <th>#</th><th>股票</th><th>今涨</th><th>5日</th><th>突破</th>
-                <th>位置</th><th>量比</th><th>换手</th><th>RSI</th><th>评分</th><th>信号</th>
-            </tr></thead><tbody>`;
+            let html = '<table class="stock-table"><thead><tr><th>#</th><th>股票</th><th>今涨</th><th>5日</th><th>突破</th><th>布林位</th><th>量比</th><th>换手</th><th>RSI</th><th>评分</th><th>信号</th><th>买入价</th><th>卖出价</th><th>止损价</th></tr></thead><tbody>';
 
             for (let i = 0; i < stocks.length; i++) {
                 const s = stocks[i];
                 const sc = s.score >= 70 ? 'score-high' : s.score >= 50 ? 'score-mid' : 'score-low';
 
                 let tags = '';
-                if (s.pullback_stable) {
-                    tags += '<span class="pullback-tag">回调企稳</span> ';
-                }
-                if (s.has_limit_up && !s.pullback_stable) {
-                    tags += '<span class="tag tag-red">涨停</span>';
-                }
-                if (s.breakthrough_pct >= 0) {
-                    tags += '<span class="tag tag-orange">突破</span>';
-                }
-                if (s.golden_cross) {
-                    tags += '<span class="tag tag-orange">金叉</span>';
-                }
-                if (s.gentle_volume) {
-                    tags += '<span class="tag tag-green">温和放量</span>';
-                }
-                if (s.moderate_volume) {
-                    tags += '<span class="tag tag-orange">明显放量</span>';
-                }
-                if (s.extreme_volume) {
-                    tags += '<span class="tag tag-gray">极端放量</span>';
-                }
-                if (s.change_5d >= 10) {
-                    tags += '<span class="tag tag-red">强势</span>';
-                }
-                if ((s.position_pct >= 90 && s.change_pct >= 7) || s.change_pct >= 9) {
-                    tags += '<span class="tag tag-gray">追高风险</span>';
-                }
+                if (s.pullback_stable) tags += '<span class="pullback-tag">回调企稳</span> ';
+                if (s.has_limit_up && !s.pullback_stable) tags += '<span class="tag tag-red">涨停</span>';
+                if (s.breakthrough_pct >= 0) tags += '<span class="tag tag-orange">突破</span>';
+                if (s.golden_cross) tags += '<span class="tag tag-orange">金叉</span>';
+                if (s.gentle_volume) tags += '<span class="tag tag-green">温和放量</span>';
+                if (s.moderate_volume) tags += '<span class="tag tag-orange">明显放量</span>';
+                if (s.extreme_volume) tags += '<span class="tag tag-gray">极端放量</span>';
+                if (s.change_5d >= 10) tags += '<span class="tag tag-red">强势</span>';
+                if ((s.position_pct >= 90 && s.change_pct >= 7) || s.change_pct >= 9) tags += '<span class="tag tag-gray">追高风险</span>';
 
                 let rsiStyle = '';
                 if (s.rsi != null) {
@@ -441,24 +462,28 @@
                 }
 
                 let mkt = s.code.startsWith('6') ? 'sh' : 'sz';
-                let url = `https://quote.eastmoney.com/${mkt}${s.code}.html`;
+                let url = 'https://quote.eastmoney.com/' + mkt + s.code + '.html';
+                let chgClass = s.change_pct >= 5 ? 'hot' : s.change_pct > 0 ? 'up' : s.change_pct < 0 ? 'down' : '';
+                let chg5dClass = s.change_5d >= 5 ? 'hot' : s.change_5d > 0 ? 'up' : s.change_5d < 0 ? 'down' : '';
+                let btHtml = s.breakthrough_pct >= 0 ? '<span class="up">' + s.breakthrough_pct + '%</span>' : '<span class="muted">' + s.breakthrough_pct + '%</span>';
+                let industryHtml = s.industry ? ' · ' + s.industry : '';
 
-                html += `<tr>
-                    <td style="font-weight:700;color:#d4a017;">${i+1}</td>
-                    <td><a href="${url}" target="_blank" rel="noopener" class="stock-link">
-                        <div class="name-cell">${s.name}</div>
-                        <div class="code-cell">${s.code}${s.industry ? ' · ' + s.industry : ''}</div>
-                    </a></td>
-                    <td class="up">${s.change_pct}%</td>
-                    <td class="up">${s.change_5d}%</td>
-                    <td>${s.breakthrough_pct >= 0 ? '<span class="up">' + s.breakthrough_pct + '%</span>' : '<span class="muted">' + s.breakthrough_pct + '%</span>'}</td>
-                    <td>${s.position_pct}%</td>
-                    <td class="${s.volume_ratio >= 2 ? 'up' : ''}">${s.volume_ratio}</td>
-                    <td>${s.turnover_rate ? s.turnover_rate + '%' : '-'}</td>
-                    <td style="${rsiStyle}">${s.rsi != null ? s.rsi : '-'}</td>
-                    <td><span class="score-val ${sc}">${s.score}</span></td>
-                    <td>${tags || '<span class="muted">-</span>'}</td>
-                </tr>`;
+                html += '<tr>';
+                html += '<td style="font-weight:700;color:#d4a017;">' + (i+1) + '</td>';
+                html += '<td><a href="' + url + '" target="_blank" rel="noopener" class="stock-link"><div class="name-cell">' + s.name + '</div><div class="code-cell">' + s.code + industryHtml + '</div></a></td>';
+                html += '<td class="' + chgClass + '">' + s.change_pct + '%</td>';
+                html += '<td class="' + chg5dClass + '">' + s.change_5d + '%</td>';
+                html += '<td>' + btHtml + '</td>';
+                html += '<td>' + s.position_pct + '%</td>';
+                html += '<td class="' + (s.volume_ratio >= 2 ? 'up' : '') + '">' + s.volume_ratio + '</td>';
+                html += '<td>' + (s.turnover_rate ? s.turnover_rate + '%' : '-') + '</td>';
+                html += '<td style="' + rsiStyle + '">' + (s.rsi != null ? s.rsi : '-') + '</td>';
+                html += '<td><span class="score-val ' + sc + '">' + s.score + '</span></td>';
+                html += '<td>' + (tags || '<span class="muted">-</span>') + '</td>';
+                html += '<td>' + (s.buy_sell ? s.buy_sell.buy.toFixed(2) : '-') + '</td>';
+                html += '<td>' + (s.buy_sell ? s.buy_sell.sell.toFixed(2) : '-') + '</td>';
+                html += '<td>' + (s.buy_sell ? s.buy_sell.stop_loss.toFixed(2) : '-') + '</td>';
+                html += '</tr>';
             }
 
             html += '</tbody></table>';
@@ -466,13 +491,7 @@
         }
 
         function showEmpty() {
-            document.getElementById('stocksContent').innerHTML = `
-                <div class="empty-state">
-                    <div class="icon">S</div>
-                    <div class="title">等待筛选</div>
-                    <div class="desc">点击「执行筛选」扫描全市场强势股</div>
-                </div>
-            `;
+            document.getElementById('stocksContent').innerHTML = '<div class="empty-state"><div class="icon">S</div><div class="title">等待筛选</div><div class="desc">点击「执行筛选」扫描全市场强势股</div></div>';
             ['totalCount','avgChange','avgScore','goldenCrossCount','pullbackCount'].forEach(id => {
                 document.getElementById(id).textContent = '-';
             });
@@ -482,9 +501,7 @@
 
         function showToast(msg) {
             const t = document.createElement('div');
-            t.style.cssText = `position:fixed;top:64px;left:50%;transform:translateX(-50%);
-                padding:10px 24px;background:#18182a;border:1px solid #2a2a3a;color:#ddd;
-                border-radius:6px;font-size:14px;z-index:9999;font-family:inherit;`;
+            t.style.cssText = 'position:fixed;top:64px;left:50%;transform:translateX(-50%);padding:10px 24px;background:#18182a;border:1px solid #2a2a3a;color:#ddd;border-radius:6px;font-size:14px;z-index:9999;font-family:inherit;';
             t.textContent = msg;
             document.body.appendChild(t);
             setTimeout(() => t.remove(), 2000);

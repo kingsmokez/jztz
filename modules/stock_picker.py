@@ -6,10 +6,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Optional
 
-from modules.data_fetcher import get_realtime_quotes, get_financial_data, get_preset_financials, get_stock_industry
+from modules.data_fetcher import get_realtime_quotes, get_financial_data, get_preset_financials, get_stock_industry, preload_industry_cache
 from modules.logger import log
 from modules.models import StockQuote, FinancialData
-from modules.scoring import evaluate_stock, calculate_buy_sell
+from modules.scoring import evaluate_stock, industry_concentration_limit, calculate_buy_sell
+from modules.market_env import get_market_env
 
 
 def _fetch_industry_for_results(results: list[dict]) -> None:
@@ -28,7 +29,7 @@ def _fetch_industry_for_results(results: list[dict]) -> None:
         list(executor.map(_fetch, results))
 
 
-def run_picker(top_n: int = 50) -> list[dict]:
+def run_picker(top_n: int = 80) -> list[dict]:
     """执行每日选股 - 与旧版逻辑对齐
 
     流程:
@@ -40,6 +41,19 @@ def run_picker(top_n: int = 50) -> list[dict]:
     6. 五维评分
     7. 按v5_score排序，返回Top N
     """
+    env = None
+    try:
+        env = get_market_env()
+        if env.can_pick():
+            top_n = env.adjusted_top_n(top_n)
+            log.info(f"每日选股: 市场环境 status={env.status}, trend={env.trend}, top_n={top_n}")
+        else:
+            top_n = max(3, top_n // 3)
+            log.warning(f"每日选股: 市场环境不佳(status={env.status}, trend={env.trend})，缩减至top_n={top_n}")
+    except Exception as e:
+        log.warning(f"每日选股: 市场环境检测失败: {e}，使用默认参数")
+        env = None
+
     quotes = get_realtime_quotes()
     if not quotes:
         log.warning("每日选股: 无法获取行情数据")
@@ -50,7 +64,7 @@ def run_picker(top_n: int = 50) -> list[dict]:
         name = q.name or ""
         if "ST" in name or "*" in name or "退" in name or name.startswith("N"):
             continue
-        if code.startswith("9") or code.startswith("688") or code.startswith("8") or code.startswith("4"):
+        if code.startswith("9") or code.startswith("8") or code.startswith("4"):
             continue
         if q.price <= 1:
             continue
@@ -68,6 +82,7 @@ def run_picker(top_n: int = 50) -> list[dict]:
     log.info(f"每日选股: 预筛选 {total_scanned} 只候选股")
 
     codes = list(candidates.keys())
+    preload_industry_cache(codes)
     financials = get_financial_data(codes)
     log.info(f"每日选股: 财务数据 {len(financials)}/{len(codes)}")
 
@@ -145,7 +160,7 @@ def run_picker(top_n: int = 50) -> list[dict]:
                 return None
 
             score = eval_result.get("score", 0)
-            if score < 30:
+            if score < 25:  # V5.5: 降低最低分阈值(V5.5更严格)
                 return None
 
             result = {
@@ -176,6 +191,8 @@ def run_picker(top_n: int = 50) -> list[dict]:
                 }),
                 "buy_sell": eval_result.get("buy_sell"),
                 "reasons": eval_result.get("reasons", []),
+                "industry": eval_result.get("industry", "未知"),
+                "sector": eval_result.get("sector_type", "default"),
             }
             return result
         except Exception as e:
@@ -194,14 +211,31 @@ def run_picker(top_n: int = 50) -> list[dict]:
 
     results.sort(key=lambda x: x.get("v5_score", x["score"]), reverse=True)
 
-    top_results = results[:top_n]
+    top_results = results[:max(top_n * 5, top_n)]  # V5.5: 更宽的候选池，确保筛选后仍有足够股票
+
+    # Industry concentration limit: max 2 stocks per industry, but keep target count.
+    target_count = min(top_n, len(results))
+    top_results = industry_concentration_limit(
+        top_results,
+        max_per_industry=2,
+        min_count=target_count,
+    )[:target_count]
 
     # Add industry/sector info to results
-    if top_results:
-        _fetch_industry_for_results(top_results)
+    if env:
+        env_info = {
+            "market_status": env.status,
+            "market_trend": env.trend,
+            "position_multiplier": round(env.position_size_multiplier(), 2),
+            "score_multiplier": round(env.score_multiplier(), 2),
+        }
+        for r in top_results:
+            r["env_info"] = env_info
 
     if top_results:
+        _fetch_industry_for_results(top_results)
         top_results[0]['_total_scanned'] = total_scanned
 
     log.info(f"每日选股: 扫描 {total_scanned} 只, 符合条件 {len(results)} 只, 返回 {len(top_results)} 只")
     return top_results
+

@@ -597,7 +597,7 @@
     <div class="container">
         <div class="header">
             <h1>竞价选股版本对比</h1>
-            <p class="subtitle">原版策略 vs 优化版策略 - 一键执行对比查看效果差异</p>
+            <p class="subtitle">优化版 v2 vs 优化版 v3 - 一键执行对比查看效果差异</p>
             <div class="header-actions">
                 <button class="btn btn-primary" onclick="executeCompare()" id="executeBtn">
                     同时执行两个版本
@@ -634,8 +634,8 @@
                 <thead>
                     <tr>
                         <th>参数</th>
-                        <th>原版</th>
-                        <th>优化版</th>
+                        <th>v2</th>
+                        <th>v3</th>
                         <th>改进说明</th>
                     </tr>
                 </thead>
@@ -644,31 +644,43 @@
                         <td class="param-name">5日涨幅要求</td>
                         <td class="param-original">-10%~25%</td>
                         <td class="param-optimized">-10%~25%</td>
-                        <td class="param-diff">大幅放宽，包含刚启动股票</td>
+                        <td class="param-diff">同源候选池，筛选标准不变</td>
                     </tr>
                     <tr>
-                        <td class="param-name">量能递增要求</td>
-                        <td class="param-original">x0.5</td>
-                        <td class="param-optimized">x0.5</td>
-                        <td class="param-diff">大幅放宽量能要求</td>
+                        <td class="param-name">评分引擎</td>
+                        <td class="param-original">五维评分 + V4买卖点</td>
+                        <td class="param-optimized">五维评分 + V4买卖点 + 热点因子</td>
+                        <td class="param-diff">v3叠加当日热点板块加分</td>
                     </tr>
                     <tr>
-                        <td class="param-name">高开阈值</td>
-                        <td class="param-original">0.5%~7%</td>
-                        <td class="param-optimized">动态调整</td>
-                        <td class="param-diff">根据大盘、昨日涨幅动态调整</td>
+                        <td class="param-name">合理PE</td>
+                        <td class="param-original">ROE×1.5+成长溢价</td>
+                        <td class="param-optimized">行业感知PE区间+质量混合</td>
+                        <td class="param-diff">v3按10大行业动态计算fair_pe</td>
                     </tr>
                     <tr>
-                        <td class="param-name">筛选方式</td>
-                        <td class="param-original">评分制(60分)</td>
-                        <td class="param-optimized">评分制(60分)</td>
-                        <td class="param-diff">灵活评分，不漏好票</td>
+                        <td class="param-name">买入折扣</td>
+                        <td class="param-original">固定3%~10%</td>
+                        <td class="param-optimized">基础折扣+技术动态调整</td>
+                        <td class="param-diff">v3加入RSI/布林/MACD/OBV调整</td>
                     </tr>
                     <tr>
-                        <td class="param-name">卖出建议</td>
+                        <td class="param-name">上涨空间</td>
+                        <td class="param-original">PE差距上限30%</td>
+                        <td class="param-optimized">PE+动量+OBV+布林收敛</td>
+                        <td class="param-diff">v3多因子upside上限45%</td>
+                    </tr>
+                    <tr>
+                        <td class="param-name">板块轮动</td>
                         <td class="param-original">无</td>
-                        <td class="param-optimized">个性化建议</td>
-                        <td class="param-diff">根据股票特征生成策略</td>
+                        <td class="param-optimized">热门板块加分(上限15分)</td>
+                        <td class="param-diff">v3纳入当日板块涨幅排名</td>
+                    </tr>
+                    <tr>
+                        <td class="param-name">止损价</td>
+                        <td class="param-original">固定8%</td>
+                        <td class="param-optimized">ATR+VWAP+MA20支撑</td>
+                        <td class="param-diff">v3技术面支撑止损，不超买入价</td>
                     </tr>
                 </tbody>
             </table>
@@ -684,12 +696,12 @@
 
         <!-- 双版本候选池对比 -->
         <div class="compare-grid">
-            <!-- 原版 -->
+            <!-- 优化版 v2 -->
             <div class="version-card">
                 <div class="version-header">
                     <div class="version-title">
-                        <span class="version-badge badge-original">原版 v1</span>
-                        <span style="font-weight:600;">竞价确认·强势早盘</span>
+                        <span class="version-badge badge-original">优化版 v2</span>
+                        <span style="font-weight:600;">动态阈值·评分筛选</span>
                     </div>
                     <div class="version-stats">
                         <div class="stat-box">
@@ -710,12 +722,12 @@
                 </div>
             </div>
 
-            <!-- 优化版 -->
+            <!-- 优化版 v3 -->
             <div class="version-card">
                 <div class="version-header">
                     <div class="version-title">
-                        <span class="version-badge badge-optimized">优化版 v2</span>
-                        <span style="font-weight:600;">动态阈值·评分筛选</span>
+                        <span class="version-badge badge-optimized">优化版 v3</span>
+                        <span style="font-weight:600;">多因子V4·买卖点</span>
                     </div>
                     <div class="version-stats">
                         <div class="stat-box">
@@ -757,13 +769,13 @@
             document.getElementById('originalContent').innerHTML = `
                 <div class="loading">
                     <div class="loading-spinner"></div>
-                    <p>执行原版预选和选股...</p>
+                    <p>执行优化版 v2 预选和选股...</p>
                 </div>
             `;
             document.getElementById('optimizedContent').innerHTML = `
                 <div class="loading">
                     <div class="loading-spinner"></div>
-                    <p>执行优化版预选和选股...</p>
+                    <p>执行优化版 v3 预选和选股...</p>
                 </div>
             `;
 
@@ -772,17 +784,19 @@
                 const data = await resp.json();
 
                 if (data.success) {
-                    cachedData = data;
-                    updateStats(data);
-                    renderVersion('original', data.original);
-                    renderVersion('optimized', data.optimized);
-                    renderConfirmCompare(data.original.stocks, data.optimized.stocks);
+                    // api_success wraps result in data.data
+                    const result = data.data || data;
+                    cachedData = result;
+                    updateStats(result);
+                    renderVersion('original', result.original);
+                    renderVersion('optimized', result.optimized);
+                    renderConfirmCompare(result.original.stocks, result.optimized.stocks);
 
-                    let timeText = '执行时间: ' + data.execute_time;
-                    if (data.message) {
-                        timeText += '<br><span style="color: var(--accent-orange);">' + data.message + '</span>';
+                    let timeText = '执行时间: ' + result.execute_time;
+                    if (result.message) {
+                        timeText += '<br><span style="color: var(--accent-orange);">' + result.message + '</span>';
                     }
-                    if (!data.in_trading_hours) {
+                    if (!result.in_trading_hours) {
                         timeText += '<br><span style="color: var(--text-muted);">竞价确认将在明日9:25交易时段执行</span>';
                     }
                     document.getElementById('executeTime').innerHTML = timeText;
@@ -930,10 +944,10 @@
             html += `
                 <div class="confirm-row" style="margin-bottom: 4px;">
                     <div style="text-align: center; font-size: 13px; font-weight: 600; color: #d4a017; padding: 4px;">
-                        原版 v1 (${originalStocks.length}只)
+                        优化版 v2 (${originalStocks.length}只)
                     </div>
                     <div style="text-align: center; font-size: 13px; font-weight: 600; color: #cd7f32; padding: 4px;">
-                        优化版 v2 (${optimizedStocks.length}只)
+                        优化版 v3 (${optimizedStocks.length}只)
                     </div>
                 </div>
             `;
@@ -968,8 +982,11 @@
             const scoreDisplay = stock.confirm_score || (stock.score != null ? stock.score.toFixed(0) : '--');
 
             let adviceHtml = '';
-            if (version === 'optimized' && stock.sell_advice && stock.sell_advice.summary) {
-                adviceHtml = `<span class="tag tag-advice">${stock.sell_advice.summary}</span>`;
+            if (version === 'optimized' && stock.buy_sell) {
+                adviceHtml = `<span class="tag tag-advice">买入${stock.buy_sell.buy.toFixed(2)} 卖出${stock.buy_sell.sell.toFixed(2)}</span>`;
+            }
+            if (version === 'optimized' && stock.hot_reasons && stock.hot_reasons.length > 0) {
+                adviceHtml += `<span class="tag tag-advice" style="color:#cf4444;">${stock.hot_reasons[0]}</span>`;
             }
 
             return `

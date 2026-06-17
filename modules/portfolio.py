@@ -290,11 +290,36 @@ class PortfolioStore:
 def _latest_price_for(code: str) -> Optional[float]:
     """Look up the most recent live-quote price for ``code``.
 
-    Returns ``None`` when the cache has no entry, when the data is
-    shaped unexpectedly, or when the parsed price is non-numeric.
+    Primary: cache snapshot (fast, in-process).
+    Fallback: Tencent real-time API (1 request, ~100ms).
+    Returns ``None`` when both sources fail.
     """
     if not code:
         return None
+
+    # --- Primary: cache snapshot ---
+    price = _price_from_cache(code)
+    if price is not None:
+        return price
+
+    # --- Fallback: Tencent real-time API ---
+    if not _has_live_quote_snapshot():
+        return None
+    price = _price_from_api(code)
+    return price
+
+
+def _has_live_quote_snapshot() -> bool:
+    """Return True when the app has a live quote snapshot to fall back from."""
+    try:
+        from modules.cache_manager import cache
+        return bool(cache.get("live_quotes_snapshot"))
+    except Exception:
+        return False
+
+
+def _price_from_cache(code: str) -> Optional[float]:
+    """Try to get price from the in-process cache snapshot."""
     try:
         from modules.cache_manager import cache
         snap = cache.get("live_quotes_snapshot")
@@ -324,6 +349,25 @@ def _latest_price_for(code: str) -> Optional[float]:
                 return float(v)
             except (TypeError, ValueError):
                 continue
+    return None
+
+
+def _price_from_api(code: str) -> Optional[float]:
+    """Fallback: fetch price from Tencent real-time API (single stock)."""
+    try:
+        import requests
+        prefix = "sh" if code.startswith("6") else "sz"
+        url = f"https://qt.gtimg.cn/q={prefix}{code}"
+        resp = requests.get(url, timeout=3)
+        text = resp.content.decode("gbk", errors="replace")
+        parts = text.split("~")
+        if len(parts) > 3:
+            price_str = parts[3]
+            price = float(price_str)
+            if price > 0:
+                return price
+    except Exception:
+        pass
     return None
 
 

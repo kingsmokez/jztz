@@ -21,6 +21,8 @@
             --glass: rgba(26,26,46,0.95);
             --up-color: #cf4444;
             --up-bg: rgba(207,68,68,0.12);
+            --hot-color: #8b5cf6;
+            --hot-bg: rgba(139,92,246,0.12);
             --down-color: #2d9e5f;
             --down-bg: rgba(45,158,95,0.12);
             --green: #2d9e5f;
@@ -640,7 +642,9 @@
         }
 
         .change-badge.up { color: var(--up-color); background: var(--up-bg); }
+        .change-badge.hot { color: var(--hot-color); background: var(--hot-bg); }
         .change-badge.down { color: var(--down-color); background: var(--down-bg); }
+        .change-badge.flat { color: var(--text-secondary); background: var(--bg-secondary); }
     </style>
 </head>
 <body>
@@ -1019,8 +1023,9 @@
             let html = '<div class="stock-list">';
             stocks.forEach((stock, idx) => {
                 const rankClass = idx < 3 ? 'rank-' + (idx + 1) : 'rank-other';
-                const changeClass = stock.ch >= 0 ? 'up' : 'down';
+                const changeClass = stock.ch >= 5 ? 'hot' : stock.ch > 0 ? 'up' : stock.ch < 0 ? 'down' : 'flat';
                 const changeSign = stock.ch >= 0 ? '+' : '';
+                const changeColor = stock.ch >= 5 ? 'color: var(--hot-color)' : stock.ch > 0 ? 'color: var(--up-color)' : stock.ch < 0 ? 'color: var(--down-color)' : 'color: var(--text-secondary)';
                 const capYi = (stock.cap / 1e8).toFixed(1);
                 const amtYi = (stock.amt / 1e8).toFixed(2);
 
@@ -1036,8 +1041,8 @@
                                 <span class="value">${stock.price}</span>
                                 <span class="label">现价</span>
                             </div>
-                            <div class="metric ${stock.ch >= 3 ? 'good' : stock.ch >= 1 ? '' : 'warn'}">
-                                <span class="value">${changeSign}${stock.ch.toFixed(2)}%</span>
+                            <div class="metric">
+                                <span class="value" style="${changeColor}">${changeSign}${stock.ch.toFixed(2)}%</span>
                                 <span class="label">涨幅</span>
                             </div>
                             <div class="metric">
@@ -1063,6 +1068,18 @@
                             <div class="metric ${stock.macd > 0 ? 'good' : 'bad'}">
                                 <span class="value">${stock.macd || '--'}</span>
                                 <span class="label">MACD</span>
+                            </div>
+                            <div class="metric">
+                                <span class="value" style="color: var(--green)">${stock.buy_sell ? stock.buy_sell.buy.toFixed(2) : '--'}</span>
+                                <span class="label">买入价</span>
+                            </div>
+                            <div class="metric">
+                                <span class="value" style="color: var(--up-color)">${stock.buy_sell ? stock.buy_sell.sell.toFixed(2) : '--'}</span>
+                                <span class="label">卖出价</span>
+                            </div>
+                            <div class="metric">
+                                <span class="value" style="color: var(--down-color)">${stock.buy_sell ? stock.buy_sell.stop_loss.toFixed(2) : '--'}</span>
+                                <span class="label">止损价</span>
                             </div>
                         </div>
                         <div class="score">

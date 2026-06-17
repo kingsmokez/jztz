@@ -13,7 +13,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: jztz_v17:v19
+    image: jztz_v17:v17
     container_name: jztz-app
     restart: unless-stopped
     ports:
@@ -28,6 +28,7 @@ services:
     volumes:
       # Persist logs outside the container so they survive `docker compose down`
       - ./logs:/app/logs
+      - ./data:/app/data
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://localhost:5000/api/live"]
       interval: 30s

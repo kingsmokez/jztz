@@ -83,6 +83,13 @@ def _format_stocks(data) -> list[dict]:
             "extreme_volume": item.get("extreme_volume", False),
             "industry": item.get("industry", ""),
             "sector": item.get("sector", ""),
+            "buy_sell": item.get("buy_sell", None),
+            "v5_score": item.get("v5_score", None),
+            "v5_factors": item.get("v5_factors", None),
+            "v5_reasons": item.get("v5_reasons", None),
+            "v5_recommendation": item.get("v5_recommendation", None),
+            "reasons": item.get("reasons", None),
         }
         stocks.append(stock)
     return stocks
+

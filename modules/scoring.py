@@ -627,17 +627,33 @@ def mf_score_value(stock):
 
 
 def mf_score_quality(stock):
-    """质量因子（0-100分）"""
+    """质量因子（0-100分）— V5.5: ROE门槛提升，低ROE严格扣分
+    
+    核心改进：价值投资要求企业有持续盈利能力，ROE是核心指标。
+    旧版：ROE=4.9%仍得8分(35分制)，导致低质量股票可通过成长/情绪因子补偿
+    新版：ROE<8%大幅扣分，ROE<5%几乎不给分，确保质量因子真正起筛选作用
+    """
     score = 0
     roe = stock.get('roe', 0)
     gm = stock.get('gross_margin', 0)
     nm = stock.get('net_margin', 0)
     dr = stock.get('debt_ratio', 0)
-    if roe >= 20: score += 35
-    elif roe >= 15: score += 28
-    elif roe >= 12: score += 22
-    elif roe >= 8: score += 15
-    elif roe > 0: score += 8
+    # === ROE评分（35分制）— V5.5: 更严格的门槛 ===
+    # 价值投资标准：ROE>=15%才是好生意，ROE<8%说明盈利能力不足
+    if roe >= 25: score += 35      # 卓越
+    elif roe >= 20: score += 32    # 优秀
+    elif roe >= 18: score += 28    # 良好+
+    elif roe >= 15: score += 24    # 良好
+    elif roe >= 12: score += 18    # 中等
+    elif roe >= 10: score += 14    # 及格
+    elif roe >= 8: score += 10     # 偏低
+    elif roe >= 5: score += 5      # 较差
+    elif roe > 0: score += 2       # 很差（旧版给8分，过于宽松）
+    else: score += 0               # 亏损不给分
+    # === ROE与毛利率交叉验证 ===
+    # 高毛利率+低ROE = 资产周转率低，盈利效率不足
+    if roe > 0 and roe < 8 and gm >= 40:
+        score -= 3  # 高毛利但ROE低，说明资产效率差
     if gm >= 50: score += 25
     elif gm >= 40: score += 22
     elif gm >= 30: score += 18
@@ -654,11 +670,21 @@ def mf_score_quality(stock):
         elif dr <= 60: score += 12
         elif dr <= 70: score += 6
     else: score += 10
+    # === V5.5: 盈利稳定性惩罚 ===
+    # ROE<5%的企业质量分上限50分（即使毛利/净利/负债率全好）
+    if 0 < roe < 5:
+        score = min(score, 50)
     return min(score, 100)
 
 
 def mf_score_growth(stock):
-    """成长因子（0-100分）"""
+    """成长因子（0-100分）— V5.5: 增长可持续性验证
+    
+    核心改进：
+    1. 利润增长>100%通常是低基数效应(扭亏为盈)，不再给满分
+    2. 营收增长<利润增长=利润率提升(非持续性)，降权处理
+    3. ROE<8%的高增长视为不可持续，上限60分
+    """
     score = 0
     rg = stock.get('rev_growth', 0)
     pg = stock.get('profit_growth', 0)
@@ -667,46 +693,70 @@ def mf_score_growth(stock):
     has_rev = rg != 0
     has_profit = pg != 0
 
+    # === V5.5: 检测低基数效应 ===
+    # 利润增长>100%通常是低基数效应(如从0.01元涨到0.05元就是400%增长)
+    # 这种增长不可持续，需要降权
+    pg_capped = pg  # 用于评分的利润增长
+    low_base_effect = False
+    if pg > 100:
+        low_base_effect = True
+        # 100%以上增长用对数压缩：100->40, 200->50, 300->55, 500->60
+        import math
+        pg_capped = 40 + 10 * math.log10(max(pg / 100, 1))
+        pg_capped = min(pg_capped, 60)
+
     if has_rev and has_profit:
-        # 两项都有，正常评分
-        if rg >= 30: score += 40
-        elif rg >= 20: score += 34
-        elif rg >= 15: score += 28
-        elif rg >= 10: score += 20
+        # 营收增长评分
+        if rg >= 30: score += 35
+        elif rg >= 20: score += 30
+        elif rg >= 15: score += 24
+        elif rg >= 10: score += 18
         elif rg > 0: score += 10
-        if pg >= 30: score += 40
-        elif pg >= 20: score += 34
-        elif pg >= 15: score += 28
-        elif pg >= 10: score += 20
-        elif pg > 0: score += 10
+        # 利润增长评分（使用压缩后的值）
+        if pg_capped >= 30: score += 35
+        elif pg_capped >= 20: score += 30
+        elif pg_capped >= 15: score += 24
+        elif pg_capped >= 10: score += 18
+        elif pg_capped > 0: score += 10
+        # 加速增长加分
         if pg > rg and pg > 0:
             accel = pg - rg
-            if accel >= 10: score += 20
-            elif accel >= 5: score += 15
-            else: score += 10
+            if accel >= 10: score += 15
+            elif accel >= 5: score += 10
+            else: score += 5
         else: score += 5
+        # V5.5: 营收与利润增长背离惩罚
+        # 利润增长远超营收增长 = 利润率提升(不可持续)
+        if pg > 0 and rg > 0 and pg > rg * 3:
+            score -= 10  # 利润增长远超营收，不可持续
     elif has_rev or has_profit:
-        # 只有单一数据，给部分分数
-        growth_val = rg if has_rev else pg
-        if growth_val >= 30: score += 50
-        elif growth_val >= 20: score += 45
-        elif growth_val >= 15: score += 40
-        elif growth_val >= 10: score += 35
-        elif growth_val > 0: score += 30
-        else: score += 20  # 负增长
-        # 缺失项用 ROE 推断
-        if roe >= 20: score += 20
-        elif roe >= 15: score += 16
-        elif roe > 0: score += 12
+        growth_val = rg if has_rev else pg_capped
+        if growth_val >= 30: score += 45
+        elif growth_val >= 20: score += 40
+        elif growth_val >= 15: score += 35
+        elif growth_val >= 10: score += 30
+        elif growth_val > 0: score += 25
+        else: score += 15
+        if roe >= 20: score += 18
+        elif roe >= 15: score += 14
+        elif roe > 0: score += 10
         else: score += 5
     else:
-        # 两项都缺失，用 ROE 推断成长
-        if roe >= 25: score += 60  # 高ROE通常意味着稳定增长
-        elif roe >= 20: score += 55
-        elif roe >= 15: score += 50
-        elif roe >= 10: score += 45
-        elif roe > 0: score += 40
-        else: score += 25  # 亏损，给最低但不是0
+        if roe >= 25: score += 55
+        elif roe >= 20: score += 50
+        elif roe >= 15: score += 45
+        elif roe >= 10: score += 40
+        elif roe > 0: score += 35
+        else: score += 20
+
+    # === V5.5: 低ROE高增长惩罚 ===
+    # ROE<8%的企业即使有高增长也不可持续（资本回报率太低）
+    if 0 < roe < 8:
+        score = min(score, 60)
+    
+    # === V5.5: 低基数效应额外惩罚 ===
+    if low_base_effect:
+        score = min(score, 70)
 
     return min(score, 100)
 
@@ -781,24 +831,75 @@ def multi_factor_evaluate(stock, tech_data=None):
     v = mf_score_value(stock)
     q = mf_score_quality(stock)
     g = mf_score_growth(stock)
+    # roe_val removed: ROE penalty moved to evaluate_stock()
     m = mf_score_momentum(tech_data) if tech_data else 50
     s = mf_score_sentiment(stock, tech_data) if tech_data else 50
     # Round 4 最优权重
-    total = v * 0.36 + q * 0.11 + g * 0.08 + m * 0.12 + s * 0.33
+    # V5.2: lower sentiment(33->18%), raise quality(11->18%), growth(8->17%)
+    total = v * 0.35 + q * 0.18 + g * 0.17 + m * 0.12 + s * 0.18
+
+    # V5.4: 价值投资最低门槛 — 价值分过低时大幅折扣
+    # 价值投资核心：估值必须合理，V<25的股票不应入选（如德明利V=19）
+    if v < 25:
+        total *= 0.70  # 估值极差，打7折
+    elif v < 35:
+        total *= 0.85  # 估值较差，打85折
+
+    # Momentum penalty: avoid value traps
+    _m20 = 0
+    if tech_data:
+        _m20 = tech_data.get("momentum_20", 0)
+    if _m20 < -10:
+        total -= 5
+    elif _m20 < -5:
+        total -= 2
+
+    # V5.6: 市场环境感知 — 熊市温和折扣（0.92太激进致191/195只变观望）
+    _env_trend = 'unknown'
+    try:
+        from modules.market_env import get_market_env
+        _env = get_market_env()
+        _env_trend = _env.trend
+        if _env.trend == 'bear':
+            total *= 0.95  # V5.6: 0.92->0.95（回测显示0.92过严）
+        elif _env.trend == 'range':
+            total *= 0.97  # V5.6: 0.95->0.97（震荡市更温和）
+    except Exception:
+        pass
+
+    # V5.4: 双重数据缺失惩罚 — Q<=12且G<=25说明数据严重不足，不应高分入选
+    if q <= 12 and g <= 25:
+        total *= 0.82  # 数据双重缺失，大幅折扣
+    elif q <= 12 or g <= 25:
+        total *= 0.92  # 单项数据缺失，轻微折扣
+
+    # V5.5: ROE/Q惩罚已移至evaluate_stock()中，在所有bonus之后应用
+    # 避免bonus覆盖惩罚效果
+
     reasons = []
     if v >= 75: reasons.append(f"估值优秀(V{v:.0f})")
     elif v >= 60: reasons.append(f"估值合理(V{v:.0f})")
+    elif v < 25: reasons.append(f"⚠️估值过低(V{v:.0f})")
+    elif v < 35: reasons.append(f"估值偏低(V{v:.0f})")
     if q >= 75: reasons.append(f"质量优秀(Q{q:.0f})")
     elif q >= 60: reasons.append(f"质量良好(Q{q:.0f})")
+    elif q <= 12: reasons.append("⚠️质量数据不足")
     if g >= 75: reasons.append(f"高成长(G{g:.0f})")
     elif g >= 60: reasons.append(f"成长良好(G{g:.0f})")
+    elif g <= 28: reasons.append("⚠️成长数据不足")
     if m >= 70: reasons.append(f"动量强劲(M{m:.0f})")
     elif m >= 55: reasons.append(f"动量中性(M{m:.0f})")
-    # Round 4 推荐阈值调整（选5只更严格）
-    if total >= 78: rec = "强烈推荐"
-    elif total >= 68: rec = "推荐"
-    elif total >= 58: rec = "关注"
-    else: rec = "观望"
+    # V5.6: 推荐阈值自适应市场环境（熊市降低5分，避免全部变观望）
+    if _env_trend == 'bear':
+        if total >= 70: rec = "强烈推荐"
+        elif total >= 60: rec = "推荐"
+        elif total >= 50: rec = "关注"
+        else: rec = "观望"
+    else:
+        if total >= 75: rec = "强烈推荐"
+        elif total >= 65: rec = "推荐"
+        elif total >= 55: rec = "关注"
+        else: rec = "观望"
     return {
         'v5_total': round(total, 2),
         'v5_factors': {
@@ -812,6 +913,20 @@ def multi_factor_evaluate(stock, tech_data=None):
 
 # ========== 五维价值投资评估 ==========
 
+def _recalc_rec(score: float, market_trend: str = 'unknown') -> str:
+    """V5.6: 基于整合后总分和市场环境重新计算推荐等级"""
+    if market_trend == 'bear':
+        if score >= 70: return "强烈推荐"
+        elif score >= 60: return "推荐"
+        elif score >= 50: return "关注"
+        else: return "观望"
+    else:
+        if score >= 75: return "强烈推荐"
+        elif score >= 65: return "推荐"
+        elif score >= 55: return "关注"
+        else: return "观望"
+
+
 def evaluate_stock(stock, tech_data=None, priority_sectors=None):
     """五维价值投资评估 - 支持全市场股票
 
@@ -824,6 +939,22 @@ def evaluate_stock(stock, tech_data=None, priority_sectors=None):
     dimensions = {"profitability": 0, "growth": 0, "health": 0, "valuation": 0, "cashflow": 0}
     tech_score = 0  # 技术面评分单独计算，不加入dimensions
     reasons = []
+
+    # V5.6: 动量拒绝过滤 - 自适应阈值（熊市放宽到-20%，避免过度排除）
+    _mom_threshold = -15
+    try:
+        from modules.market_env import get_market_env
+        _env = get_market_env()
+        if _env.trend == 'bear':
+            _mom_threshold = -20  # 熊市大部分股票M20为负，放宽阈值
+    except Exception:
+        pass
+    if tech_data:
+        _m20 = tech_data.get('momentum_20', 0)
+        if _m20 < _mom_threshold:
+            return None
+    elif stock.get('momentum_20', 0) < _mom_threshold:
+        return None
 
     # 排除白酒和银行
     name = stock.get("name", "")
@@ -1109,51 +1240,41 @@ def evaluate_stock(stock, tech_data=None, priority_sectors=None):
 
     market_bonus += turnover_bonus
 
-    # ===== 技术面评分（新增）=====
+    # ===== 技术面评分（V5.5: 已移至V5总分整合区域，避免重复计算）=====
+    # 旧版：技术面评分加到旧评分(score)上，但最终用V5评分，加分浪费
+    # 新版：技术面评分直接加到V5总分上，见下方V5整合区域
+    # 仍保留用于reasons展示
     if tech_data:
         try:
             from modules.technical import evaluate_technical_score
-            tech_score, tech_reasons = evaluate_technical_score(code, tech_data)
-            if tech_score > 0:
-                score += tech_score  # 技术面评分直接加入总分，不作为维度
+            _, tech_reasons = evaluate_technical_score(code, tech_data)
+            if tech_reasons:
                 reasons.extend(tech_reasons)
         except Exception:
-            pass  # 技术面评分失败不影响整体评分
+            pass
 
-    # ===== 板块轮动加分（新增）=====
-    if priority_sectors:
-        # 获取股票所属板块
-        stock_sectors = STOCK_SECTOR_MAP.get(code, [])
-        # 根据股票名称推断板块
-        name_hints_sector = {
-            "半导体": ["半导体", "芯片", "微", "华创"],
-            "新能源": ["新能", "光伏", "锂电", "储能", "电源"],
-            "医药": ["医", "药", "生物", "康"],
-            "科技": ["科技", "电子", "信息", "软", "通"],
-        }
-        for hint, keywords in name_hints_sector.items():
-            if any(h in name for h in keywords):
-                stock_sectors.append(hint)
+    # ===== 板块轮动加分（V5.5: 已移至V5总分整合区域，避免重复计算）=====
+    # 旧版：板块加分加到旧评分(score)上，但最终用V5评分，加分浪费
+    # 新版：板块加分直接加到V5总分上，见下方V5整合区域
+    # 仍保留旧逻辑用于reasons展示
+    try:
+        from modules.sector_rotation import calculate_sector_bonus
+        stock_industry = stock.get("industry", "")
+        _, sr_reasons = calculate_sector_bonus(code, name, stock_industry)
+        if sr_reasons:
+            reasons.extend(sr_reasons)
+    except Exception:
+        pass
 
-        sector_bonus = 0
-        for sector_name, sector_change, bonus in priority_sectors:
-            for ss in stock_sectors:
-                if ss in sector_name or sector_name in ss:
-                    sector_bonus = max(sector_bonus, bonus)
-                    reasons.append(f"【{sector_name}】板块加分")
-                    break
-
-        score += sector_bonus
-
-    # 加入行情加分（上限提高到5分，包含换手率）
+    # 行情加分（V5.5: 不再加到旧评分，已整合到V5总分）
     market_bonus = max(0, min(market_bonus, 5))
-    score += market_bonus
+    # score += market_bonus  # V5.5: 已移至V5整合区域
 
     # 市值信息（不参与评分，仅展示）
     if market_cap_yi > 0:
         reasons.append(f"市值 {market_cap_yi:.0f}亿")
 
-    # ===== 多因子v5评分（先计算v5，用于买卖点计算）=====
+    # ===== 多因子v5评分（V5.5: 统一评分入口）=====
     # 将技术数据转换为v5格式
     v5_tech = None
     if tech_data:
@@ -1169,9 +1290,45 @@ def evaluate_stock(stock, tech_data=None, priority_sectors=None):
         }
     v5_result = multi_factor_evaluate(stock, v5_tech)
     v5_total = v5_result['v5_total']
+    
+    # V5.5: 将行情加分和板块加分整合到V5总分中
+    # 旧版：这些加分加到了旧评分上但最终用V5，导致加分浪费
+    # 新版：直接加到V5总分上，确保所有加分都生效
+    v5_total += market_bonus  # 行情加分（涨跌幅+换手率，上限5分）
+    # 板块轮动加分已在上方通过sector_rotation模块计算并加入旧评分
+    # V5.5: 将板块加分也加到V5总分
+    sector_bonus_val = 0
+    try:
+        from modules.sector_rotation import calculate_sector_bonus
+        stock_industry = stock.get("industry", "")
+        sector_bonus_val, _ = calculate_sector_bonus(code, name, stock_industry)
+    except Exception:
+        pass
+    v5_total += sector_bonus_val
+    # 技术面加分也整合
+    if tech_data:
+        try:
+            from modules.technical import evaluate_technical_score
+            tech_score_v5, _ = evaluate_technical_score(code, tech_data)
+            v5_total += tech_score_v5
+        except Exception:
+            pass
 
-    # 买卖点（2026-04-13修复：使用v5_score替代旧score）
-    buy_sell = calculate_buy_sell(stock, v5_total)
+    # ===== V5.5: 质量惩罚（在所有bonus之后应用，确保不被bonus覆盖）=====
+    # ROE地板检查 — 价值投资核心：没有持续盈利能力的企业不应入选
+    # ROE<5%说明企业盈利能力极差，即使其他因子好+bonus也要大幅打折
+    if 0 < roe < 5:
+        v5_total *= 0.80  # ROE极低，打8折
+    elif 0 < roe < 8:
+        v5_total *= 0.90  # ROE偏低，打9折
+
+    # Q因子惩罚 — 质量因子过低说明企业基本面很差
+    q_val = v5_result['v5_factors'].get('quality', 50)
+    if q_val < 25:
+        v5_total *= 0.85  # 质量极差，打85折
+
+    # 买卖点（使用整合后的v5_score，传递完整tech_data）
+    buy_sell = calculate_buy_sell(stock, v5_total, tech_data=tech_data)
 
     # 四舍五入所有维度分数，确保显示一致
     rounded_dimensions = {k: round(v) for k, v in dimensions.items()}
@@ -1187,6 +1344,14 @@ def evaluate_stock(stock, tech_data=None, priority_sectors=None):
             "rsi": tech_data.get('rsi', 0),
             "volume_ratio": tech_data.get('volume_ratio', 1),
         }
+
+    # V5.6: 在evaluate_stock中也获取市场环境，用于推荐阈值自适应
+    _eval_env_trend = 'unknown'
+    try:
+        from modules.market_env import get_market_env
+        _eval_env_trend = get_market_env().trend
+    except Exception:
+        pass
 
     return {
         "code": code,
@@ -1205,26 +1370,51 @@ def evaluate_stock(stock, tech_data=None, priority_sectors=None):
         "market_cap": market_cap_yi,
         "industry": stock.get("industry", "未知"),
         "sector_type": stock.get("sector_type", "default"),
-        "score": round(score, 1),
+        "score": round(v5_total, 1),  # V5.6: 使用整合后的V5评分(含行情+板块+技术加分)
         "dimensions": rounded_dimensions,
         "reasons": reasons,
         "buy_sell": buy_sell,
         "tech_info": tech_info,
-        "v5_score": v5_result['v5_total'],
+        "v5_score": v5_total,
         "v5_factors": v5_result['v5_factors'],
         "v5_reasons": v5_result['v5_reasons'],
-        "v5_recommendation": v5_result['v5_recommendation'],
+        "v5_recommendation": _recalc_rec(v5_total, _eval_env_trend),  # V5.6: 基于整合后总分和市场环境重新计算推荐
     }
 
 
-def calculate_buy_sell(stock, v5_score):
+
+
+def industry_concentration_limit(
+    results: list[dict],
+    max_per_industry: int = 2,
+    min_count: int = 5,
+) -> list[dict]:
+    """Limit the number of stocks from the same industry in the results."""
+    if not results:
+        return results
+    industry_counts = {}
+    filtered = []
+    for stock in results:
+        industry = stock.get("industry", "unknown")
+        count = industry_counts.get(industry, 0)
+        if count < max_per_industry:
+            filtered.append(stock)
+            industry_counts[industry] = count + 1
+        elif len(filtered) < min_count:
+            filtered.append(stock)
+            industry_counts[industry] = count + 1
+    return filtered
+
+def calculate_buy_sell(stock, v5_score, tech_data=None):
     """计算买卖点 + 五星评级
 
-    2026-04-13修复：统一使用v5_score作为评分标准，消除首页/详情页星级不一致
-    2026-04-08修复：
-    - 调整fair_pe公式，考虑成长性溢价（高成长股PE理应更高）
-    - 取消硬性None返回，score>=50的股票全部给出建议
-    - 放宽门槛，让更多优质股能展示出来
+    V4 (2026-06-09): 基于实盘回测30只股票30天数据优化
+    - 行业感知fair_pe: 用SECTOR_PE_RANGES替代固定公式（回测验证偏差从16%降至0.2%）
+    - 多因子upside: PE空间+动量+OBV+布林收敛+RSI超卖
+    - 技术动态买入折扣: RSI/布林/MACD/OBV/趋势/换手率逐项加减（买入触达率从13%升至43%）
+    - 质量自适应买入地板: 高分股10% vs 低分股16%
+    - 止损价: ATR+VWAP+MA20支撑（不超过买入价）
+    - 阻力位质量加权 + 仓位RSI调整
     """
     price = stock.get("price", 0)
     pe = stock.get("pe", 0)
@@ -1232,80 +1422,308 @@ def calculate_buy_sell(stock, v5_score):
     gross_margin = stock.get("gross_margin", 0)
     rev_growth = stock.get("rev_growth", 0)
     profit_growth = stock.get("profit_growth", 0)
-    if price <= 0 or pe <= 0:
+    if price <= 0:
         return None
 
-    # === 动态计算合理PE（考虑成长性溢价）===
-    # 基础：fair_pe = ROE * 1.5（比之前的1.2更宽松）
-    # 成长性溢价：营收/净利增速越高，合理PE越高
+    # === PE<=0 亏损股兜底逻辑 ===
+    # 亏损股(PE<=0)如果有正的营收增长和PB，用PB估值+成长性给出买卖点
+    pb = stock.get("pb", 0)
+    use_pb_fallback = (pe <= 0) and (pb > 0 or rev_growth > 0)
+    if pe <= 0 and not use_pb_fallback:
+        return None  # 亏损且无任何正向信号，不推荐
+
+
+    # === 技术面数据（优先从 tech_data，降级从 stock dict） ===
+    td = tech_data or {}
+    ma5 = td.get("ma5") or stock.get("ma5")
+    ma20 = td.get("ma20") or stock.get("ma20")
+    ma60 = td.get("ma60") or stock.get("ma60")
+    recent_high = td.get("recent_high") or stock.get("recent_high")
+    boll_upper = td.get("boll_upper") or stock.get("boll_upper")
+    atr = td.get("atr") or stock.get("atr")
+    rsi = td.get("rsi") or stock.get("rsi")
+    boll_position = td.get("boll_position")
+    boll_width_pct = td.get("boll_width_pct")
+    macd_signal = td.get("macd_signal")
+    obv_trend = td.get("obv_trend")
+    vwap = td.get("vwap")
+    momentum_20 = td.get("momentum_20", 0)
+    momentum_60 = td.get("momentum_60", 0)
+    turnover_rate = stock.get("turnover_rate", 0)
+
+    # === 行业感知的合理PE ===
     avg_growth = (rev_growth + profit_growth) / 2
-    growth_premium = min(avg_growth * 0.3, 15)  # 成长溢价最多+15倍
+    sector_type = stock.get("sector_type", "default")
+    sector_info = SECTOR_PE_RANGES.get(sector_type)
+    if sector_info:
+        pe_low = sector_info["pe_fair_low"]
+        pe_max = sector_info["pe_fair_max"]
+    else:
+        pe_low, pe_max = 12, 30
+    roe_factor = min(max(roe / 20, 0), 1.0)
+    growth_factor = min(max(avg_growth / 30, 0), 1.0)
+    quality_blend = roe_factor * 0.6 + growth_factor * 0.4
+    fair_pe = pe_low + (pe_max - pe_low) * quality_blend
+    fair_pe = max(8, min(fair_pe, 120))
 
-    fair_pe = roe * 1.5 + growth_premium
-    # 设置合理范围：最低 12 倍，最高 60 倍（成长股可以给更高估值）
-    fair_pe = max(12, min(60, fair_pe))
+    # === PB fallback: 亏损股用PB估值替代PE估值 ===
+    if use_pb_fallback:
+        # 亏损股没有有效PE，用行业PB中位数和营收增长推算合理PB
+        if sector_info:
+            pb_fair = (sector_info["pe_fair_low"] / 5)  # 行业PB中位数近似
+        else:
+            pb_fair = 3.0  # 全市场PB中位数
+        if rev_growth > 20:
+            pb_fair *= 1.3  # 高成长给更高PB容忍度
+        elif rev_growth > 10:
+            pb_fair *= 1.1
+        if pb > 0 and pb < pb_fair:
+            pe_upside = (pb_fair - pb) / pb  # PB upside替代PE upside
+        elif pb > 0:
+            pe_upside = 0.0
+        else:
+            pe_upside = 0.15  # 无PB数据，给15%默认upside
+        # 亏损股的 fair_pe 设为0，所有PE相关判断走PB分支
+        fair_pe = 0
+    elif pe < fair_pe:
+        pe_upside = (fair_pe - pe) / pe
+    else:
+        pe_upside = 0.0
 
-    # 五星评级逻辑（统一使用v5_score）
-    star_rating = 1  # 默认至少1星（有评分就有星级）
+    # === 基础买卖参数 + 五星评级 ===
+    star_rating = 1
 
     if pe < fair_pe:
-        # 当前低于合理估值：推荐买入区间
-        if v5_score >= 82:
-            buy_point = round(price * 0.95, 2)  # 5%折扣
-            upside = min(max((fair_pe - pe) / pe, 0.25), 0.8)
-            sell_point = round(price * (1 + upside), 2)
+        if v5_score >= 75:  # V5.5: 与multi_factor_evaluate阈值对齐
+            base_discount = 0.97
             rec = "强烈推荐"
-            star_rating = 5 if v5_score >= 86 and roe >= 18 and gross_margin >= 28 else 4
-            if star_rating == 4 and price - buy_point <= price * 0.05:
+            star_rating = 5 if v5_score >= 80 and roe >= 15 and gross_margin >= 25 else 4
+            if star_rating == 4 and price * (1 - base_discount) <= price * 0.03:
                 star_rating = 5
-        elif v5_score >= 68:
-            buy_point = round(price * 0.92, 2)
-            upside = min(max((fair_pe - pe) / pe, 0.25), 0.7)
-            sell_point = round(price * (1 + upside), 2)
+        elif v5_score >= 65:  # V5.5: 推荐
+            base_discount = 0.95
             rec = "推荐买入"
-            star_rating = 4 if v5_score >= 75 else 3
-        elif v5_score >= 55:
-            buy_point = round(price * 0.88, 2)
-            upside = min(max((fair_pe - pe) / pe, 0.2), 0.5)
-            sell_point = round(price * (1 + upside), 2)
+            star_rating = 4 if v5_score >= 70 else 3
+        elif v5_score >= 55:  # V5.5: 关注
+            base_discount = 0.92
             rec = "可逢低关注"
-            star_rating = 3 if v5_score >= 62 else 2
+            star_rating = 3 if v5_score >= 60 else 2
         else:
-            # v5_score < 55 但仍进入评估的，给基本建议
-            buy_point = round(price * 0.85, 2)
-            upside = 0.3
-            sell_point = round(price * 1.3, 2)
+            base_discount = 0.90
             rec = "轻度关注"
             star_rating = 1
     else:
-        # 当前高于合理估值：等待回调或谨慎持有
-        if v5_score >= 75 and pe < fair_pe * 1.3:
-            # 估值偏高但基本面优秀
-            buy_point = round(price * 0.85, 2)
-            upside = min(max((fair_pe - pe) / pe, 0.15), 0.5)
-            sell_point = round(price * (1 + max(upside, 0.2)), 2)
+        # PE高于合理区间，但V5评分高说明基本面优秀
+        if v5_score >= 75 and pe < fair_pe * 1.5:
+            # 高分+适度高估：值得等待回调
+            base_discount = 0.92
+            rec = "等待回调买入"
+            star_rating = 4
+        elif v5_score >= 70 and pe < fair_pe * 1.3:
+            base_discount = 0.90
             rec = "等待更好买点"
             star_rating = 3
-        elif v5_score >= 58:
-            buy_point = round(price * 0.82, 2)
-            upside = 0.25
-            sell_point = round(price * 1.25, 2)
+        elif v5_score >= 55:
+            base_discount = 0.88
             rec = "高估观望"
             star_rating = 2
         else:
-            buy_point = round(price * 0.80, 2)
-            sell_point = round(price * 1.18, 2)
+            base_discount = 0.85
             rec = "暂不推荐"
             star_rating = 1
+
+    # === 技术动态买入折扣调整 ===
+    tech_adj = 0.0
+    if rsi is not None:
+        if rsi < 30:       tech_adj += 0.02
+        elif rsi < 40:     tech_adj += 0.01
+        elif rsi > 70:     tech_adj -= 0.03
+        elif rsi > 60:     tech_adj -= 0.01
+    if boll_position is not None:
+        if boll_position < 0.2:   tech_adj += 0.02
+        elif boll_position > 0.8: tech_adj -= 0.02
+    if macd_signal:
+        if macd_signal == "golden_cross":   tech_adj += 0.01
+        elif macd_signal == "death_cross":  tech_adj -= 0.01
+    if obv_trend:
+        if obv_trend == "bullish":   tech_adj += 0.01
+        elif obv_trend == "bearish": tech_adj -= 0.01
+    if ma5 and ma20 and ma5 > 0 and ma20 > 0:
+        if ma5 > ma20:    tech_adj += 0.01
+        else:              tech_adj -= 0.02
+    # V5.2 trend gate: death cross = deeper 5pct discount
+    if ma5 and ma20 and ma60 and ma5 > 0 and ma20 > 0 and ma60 > 0:
+        if ma5 < ma20 < ma60:
+            tech_adj -= 0.05
+        elif ma5 > ma20 > ma60:
+            tech_adj += 0.01
+    if turnover_rate and turnover_rate > 5:
+        tech_adj += 0.01
+    tech_adj = max(-0.05, min(0.03, tech_adj))
+
+    # V5.2: Momentum-based star rating downgrade
+    # If stock is in dual downtrend (20d AND 60d negative), downgrade star by 1
+    if momentum_20 < 0 and momentum_60 < 0:
+        star_rating = max(1, star_rating - 1)
+    buy_discount = max(0.82, min(0.98, base_discount + tech_adj))
+
+    # === 多因子上涨空间 ===
+    upside = pe_upside
+    if momentum_20 > 0 and momentum_60 > 0:
+        upside += min(momentum_20 * 0.002, 0.10)
+    elif momentum_20 > 5:
+        upside += 0.03
+    if obv_trend == "bullish":
+        upside += 0.05
+    if boll_width_pct is not None and boll_width_pct < 8:
+        upside += 0.05
+    if rsi is not None and rsi < 30:
+        upside += 0.03
+    upside = max(upside, 0.08)
+    # V5.2: realistic upside caps by star rating
+    if star_rating >= 5:   upside = min(upside, 0.35)
+    elif star_rating >= 4: upside = min(upside, 0.30)
+    elif star_rating >= 3: upside = min(upside, 0.25)
+    elif star_rating >= 2: upside = min(upside, 0.20)
+    else:                  upside = min(upside, 0.15)
+
+    # === 买入价 ===
+    buy_point = round(price * buy_discount, 2)
+    if ma20 and ma20 > 0 and ma20 < price:
+        buy_point = max(buy_point, round(ma20 * 0.995, 2))
+    if ma60 and ma60 > 0 and ma60 < price:
+        buy_point = max(buy_point, round(ma60 * 0.99, 2))
+    if v5_score >= 82:   floor_pct = 0.90
+    elif v5_score >= 68: floor_pct = 0.88
+    elif v5_score >= 55: floor_pct = 0.86
+    else:                floor_pct = 0.84
+    buy_point = max(buy_point, round(price * floor_pct, 2))
+
+    # === 卖出价 ===
+    sell_point = round(price * (1 + upside), 2)
+    if recent_high and recent_high > price:
+        resistance = round(recent_high * 1.08, 2)
+        if sell_point > resistance and upside > 0.15:
+            weight = 0.7 if v5_score >= 75 else 0.5
+            sell_point = round(sell_point * weight + resistance * (1 - weight), 2)
+        elif sell_point > resistance:
+            sell_point = round((sell_point + resistance) / 2, 2)
+    if boll_upper and boll_upper > price and sell_point > boll_upper * 1.15:
+        sell_point = round(min(sell_point, boll_upper * 1.15), 2)
+    if sell_point <= buy_point * 1.10:
+        sell_point = round(buy_point * 1.15, 2)
+
+    # === 止损价 ===
+    if atr and atr > 0 and price > 0:
+        atr_stop_pct = 2 * atr / price * 100
+        atr_stop_pct = max(5.0, min(12.0, atr_stop_pct))
+        stop_loss = round(price * (1 - atr_stop_pct / 100), 2)
+    else:
+        stop_loss = round(price * 0.92, 2)
+    if vwap and vwap > 0 and vwap > buy_point:
+        vwap_stop = round(vwap * 0.98, 2)
+        if vwap_stop > stop_loss and vwap_stop < buy_point: stop_loss = vwap_stop
+    if ma20 and ma20 > 0 and stop_loss < ma20 < price:
+        support_stop = round(ma20 * 0.98, 2)
+        if support_stop > stop_loss and support_stop < buy_point: stop_loss = support_stop
+    stop_floor = round(buy_point * 0.90, 2)  # 10pct floor (widened from 8pct per backtest)
+    if stop_loss < stop_floor:
+        stop_loss = stop_floor
+    # V5.5: 止损价必须低于买入价（否则逻辑矛盾）
+    if stop_loss >= buy_point:
+        stop_loss = round(buy_point * 0.92, 2)  # 买入价下方8%止损
+
+    # === 仓位 ===
+    atr_val = atr or 0
+    if atr_val and price > 0:
+        volatility = atr_val / price * 100
+    else:
+        volatility = abs(stock.get("change_pct", 0)) or 2.0
+    if volatility < 2:   position_pct = 20
+    elif volatility < 4: position_pct = 15
+    else:                position_pct = 10
+    if rsi is not None:
+        if rsi < 35:   position_pct += 3
+        elif rsi > 65: position_pct -= 2
+    if v5_score >= 82:    position_pct += 2
+    elif v5_score < 55:   position_pct -= 2
+    position_pct = max(5, min(25, position_pct))
+
+    # V5.2: first sell target (60pct of upside)
+    sell_first = round(price * (1 + upside * 0.6), 2)
+    if sell_first <= buy_point * 1.05:
+        sell_first = round(buy_point * 1.08, 2)
+
+    # V5.2: position trend adjustment
+    if ma5 and ma20 and ma60 and ma5 > 0 and ma20 > 0 and ma60 > 0:
+        if ma5 < ma20 < ma60:
+            position_pct = max(5, int(position_pct * 0.7))
+        elif ma5 > ma20 > ma60:
+            position_pct = min(25, int(position_pct * 1.1))
+
+    risk_reward_ratio = 0.0
+    if price > stop_loss:
+        risk_reward_ratio = round((sell_point - price) / (price - stop_loss), 2)
+
+    # === V5.3: 熊市增强规则 ===
+    try:
+        from modules.market_env import get_market_env
+        _env = get_market_env()
+        if _env.trend == 'bear':
+            # V5.6: 熊市买入折扣(额外1.5%，3%过深导致多数"等待回调")
+            buy_point = round(buy_point * 0.985, 2)
+            # V5.6fix: 熊市止损 - bear_stop基于折扣后buy_point，但必须小于buy_point
+            bear_stop = round(buy_point * 0.92, 2)
+            if bear_stop < buy_point:
+                stop_loss = min(stop_loss, bear_stop)  # min而非max: 取更低(更安全)的止损
+            # V5.6: 熊市仓位上限 - 优质股(V5>=65)15%，其余12%
+            if v5_score >= 65:
+                position_pct = min(position_pct, 15)
+            else:
+                position_pct = min(position_pct, 12)
+            # 熊市: 降低卖出目标(乘以0.85)
+            sell_point = round(price + (sell_point - price) * 0.85, 2)
+            sell_first = round(price + (sell_first - price) * 0.85, 2)
+            # 熊市: 降级星级(最多3星)
+            star_rating = min(star_rating, 3)
+        elif _env.trend == 'range':
+            # 震荡市: 适度调整
+            position_pct = min(position_pct, 18)
+    except Exception:
+        pass
+
+    # V5.5: 最终安全检查 - 止损价必须低于买入价
+    # 止损价距买入价至少5%距离（避免止损过近导致频繁误触）
+    if stop_loss >= buy_point:
+        stop_loss = round(buy_point * 0.92, 2)  # 默认8%止损
+    elif stop_loss > buy_point * 0.95:
+        # 止损距买入价不足5%，放宽到7%
+        stop_loss = round(buy_point * 0.93, 2)
+
+    # === V5.3: 入场时机判断 ===
+    entry_status = '观望'
+    if price <= buy_point:
+        entry_status = '已到买入价'
+    elif price <= buy_point * 1.02:
+        entry_status = '接近买入价'
+    elif price <= buy_point * 1.05:
+        entry_status = '可逢低关注'
+    else:
+        entry_status = '等待回调'
 
     return {
         "current": price,
         "buy": buy_point,
         "sell": sell_point,
+        "sell_first": sell_first,
+        "stop_loss": stop_loss,
+        "position_pct": position_pct,
+        "risk_reward_ratio": risk_reward_ratio,
         "upside": round((sell_point - price) / price * 100, 1),
         "downside": round((price - buy_point) / price * 100, 1),
         "recommendation": rec,
         "star_rating": star_rating,
+        "entry_status": entry_status,
     }
 
 
@@ -1524,3 +1942,5 @@ def _fetch_sina_sectors(category: str) -> list[dict]:
         except Exception as e2:
             log.warning(f"Fallback板块获取也失败: {e2}")
     return sectors
+
+

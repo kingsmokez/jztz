@@ -24,7 +24,7 @@ wp2_bp = Blueprint("wp2", __name__)
 
 WP2_PICK_LOCK = threading.Lock()
 WP2_PICK_DATA: dict = {}
-WP2_PICK_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'wp2_pick_cache.json')
+WP2_PICK_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'wp2_pick_cache.json')
 
 
 def _format_wp2_stocks(data) -> list[dict]:
@@ -46,8 +46,16 @@ def _format_wp2_stocks(data) -> list[dict]:
             "rsi": item.get("rsi", 0),
             "macd": item.get("macd", 0),
             "score": item.get("score", 0),
+            "pe": item.get("pe", 0),
+            "pb": item.get("pb", 0),
             "industry": item.get("industry", ""),
             "sector": item.get("sector", ""),
+            "buy_sell": item.get("buy_sell", None),
+            "v5_score": item.get("v5_score", None),
+            "v5_factors": item.get("v5_factors", None),
+            "v5_reasons": item.get("v5_reasons", None),
+            "v5_recommendation": item.get("v5_recommendation", None),
+            "reasons": item.get("reasons", None),
         }
         stocks.append(stock)
     return stocks
@@ -59,7 +67,25 @@ def _load_wp2_cache():
         if os.path.exists(WP2_PICK_FILE):
             with open(WP2_PICK_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                if data.get('date') == datetime.now().strftime('%Y-%m-%d'):
+                # 兼容两种缓存格式：
+                # 1. 字典格式: {"date": ..., "stocks": ...} (wp2.py保存)
+                # 2. 列表格式: [{stock1}, ...] (web_app.py保存)
+                if isinstance(data, list):
+                    today = datetime.now().strftime('%Y-%m-%d')
+                    # V5.5: 过滤ROE<0的亏损股
+                    data = [r for r in data
+                            if not (isinstance(r.get('roe'), (int, float)) and r.get('roe') < 0)]
+                    WP2_PICK_DATA = {
+                        "date": today,
+                        "stocks": data,
+                        "pick_time": datetime.now().strftime('%H:%M:%S'),
+                        "last_update": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        "filter_stats": [],
+                        "market_info": {},
+                        "running": False,
+                    }
+                    return
+                elif isinstance(data, dict) and data.get('date') == datetime.now().strftime('%Y-%m-%d'):
                     WP2_PICK_DATA = data
                     return
     except Exception as e:
@@ -337,10 +363,11 @@ def _wp2_get_tencent_quote(codes):
                     low = float(parts[34]) if len(parts) > 34 and parts[34] else 0
                     pct_change = float(parts[32]) if len(parts) > 32 and parts[32] else 0
                     turnover_rate = float(parts[38]) if len(parts) > 38 and parts[38] else 0
-                    vol_ratio = float(parts[49]) if len(parts) > 49 and parts[49] else 0
+                    pb_val = float(parts[46]) if len(parts) > 46 and parts[46] and parts[46] != '-' else 0
                     pe_val = float(parts[39]) if len(parts) > 39 and parts[39] else 0
                     circ_mv = float(parts[45]) if len(parts) > 45 and parts[45] else 0
                     total_mv = float(parts[44]) if len(parts) > 44 and parts[44] else 0
+                    vol_ratio = float(parts[49]) if len(parts) > 49 and parts[49] else 0
                     name = parts[1]
 
                     if price <= 0:
@@ -352,9 +379,10 @@ def _wp2_get_tencent_quote(codes):
                         'f8': turnover_rate, 'f9': pe_val, 'f10': vol_ratio,
                         'f12': pure_code, 'f13': market_num, 'f14': name,
                         'f15': high, 'f16': low, 'f17': open_price, 'f18': pre_close,
-                        'f20': total_mv * 1e8, 'f21': circ_mv * 1e8, 'f23': pe_val,
+                        'f20': total_mv * 1e8, 'f21': circ_mv * 1e8, 'f23': pb_val,
                     }
-                except (ValueError, IndexError):
+                except (ValueError, IndexError, NameError) as e:
+                    log.debug(f"腾讯行情解析失败({pure_code if 'pure_code' in dir() else '?'}): {e}")
                     continue
         except Exception as e:
             log.warning(f"腾讯行情获取失败: {e}")
@@ -387,30 +415,7 @@ def _wp2_get_tencent_market_cap(codes):
         return {}
 
 
-def _wp2_get_tencent_kline(symbol, count=60):
-    from modules.http_client import session
-    try:
-        r = session.get('https://web.ifzq.gtimg.cn/appstock/app/fqkline/get',
-                        params={'param': f'{symbol},day,,,{count},qfq'},
-                        timeout=10)
-        d = r.json()
-        if d.get('code') != 0:
-            return None
-        data = d.get('data', {})
-        stock_key = list(data.keys())[0] if data else None
-        if not stock_key:
-            return None
-        qfqday = data[stock_key].get('qfqday') or data[stock_key].get('day') or []
-        klines = []
-        for row in qfqday:
-            if len(row) >= 6:
-                klines.append(f"{row[0]},{row[1]},{row[2]},{row[3]},{row[4]},{row[5]}")
-        return {'data': {'klines': klines}}
-    except Exception:
-        return None
-
-
-def _execute_wp2_pick(min_cap=30, max_cap=300, min_amt=3, vol_mul=1.5, break_n=20, body_r=0.6, rsi_lo=40, rsi_hi=75, min_score=25):
+def _execute_wp2_pick(min_cap=30, max_cap=500, min_amt=3, vol_mul=1.5, break_n=20, body_r=0.6, rsi_lo=40, rsi_hi=75, min_score=30):
     global WP2_PICK_DATA
     filter_log = []
 
@@ -510,24 +515,27 @@ def _execute_wp2_pick(min_cap=30, max_cap=300, min_amt=3, vol_mul=1.5, break_n=2
 
         log.info(f"获取 {len(s1)} 只K线...")
         kline_data = {}
+        from modules.kline_fetcher import kline_fetcher
         for i in range(0, len(s1), 50):
             batch = s1[i:i + 50]
             for s in batch:
                 code = str(s.get('f12', ''))
                 market = str(s.get('f13', '1'))
                 symbol = f'sh{code}' if market == '1' else f'sz{code}'
-                kd = _wp2_get_tencent_kline(symbol, 60)
+                kd = kline_fetcher.get_kline_raw(symbol, 120)
                 if kd:
                     kline_data[code] = kd
-                time.sleep(0.05)
+                time.sleep(0.1)
 
-        stat_ma, stat_vol, stat_brk, stat_rsi, stat_mc = 0, 0, 0, 0, 0
+        log.info(f"K线获取完成: {len(kline_data)}/{len(s1)} 只成功, 源状态={kline_fetcher.health_status()}")
+
+        stat_close, stat_vol, stat_ma, stat_atr, stat_vp = 0, 0, 0, 0, 0
         results = []
 
         for s in s1:
             code = str(s.get('f12', ''))
             kd = kline_data.get(code)
-            if not kd or not kd.get('data') or not kd.get('data', {}).get('klines') or len(kd['data']['klines']) < 25:
+            if not kd or not kd.get('data') or not kd.get('data', {}).get('klines') or len(kd['data']['klines']) < 15:
                 continue
 
             kl = []
@@ -536,100 +544,239 @@ def _execute_wp2_pick(min_cap=30, max_cap=300, min_amt=3, vol_mul=1.5, break_n=2
                 if len(parts) >= 6:
                     kl.append({'o': float(parts[1]), 'c': float(parts[2]), 'h': float(parts[3]), 'lo': float(parts[4]), 'v': float(parts[5])})
             kl = [k for k in kl if k['c'] > 0]
-            if len(kl) < 25:
+            if len(kl) < 15:
                 continue
 
             cl = [k['c'] for k in kl]
             hi = [k['h'] for k in kl]
+            lo = [k['lo'] for k in kl]
             vl = [k['v'] for k in kl]
+            op = [k['o'] for k in kl]
             t = len(kl) - 1
+            pct = float(s.get('f3', 0))
 
             m5 = _wp2_calc_ma(cl, 5)
             m10 = _wp2_calc_ma(cl, 10)
             m20 = _wp2_calc_ma(cl, 20)
             m60 = _wp2_calc_ma(cl, 60)
+            rsi = _wp2_calc_rsi(cl)
+            mc = _wp2_calc_macd(cl)
 
-            if not m5 or not m10 or not m20 or not m60:
-                continue
+            score = 0.0
 
-            tech_score = 0.0
+            # --- 因子1: 收盘位置 (0~40分) ---
+            day_range = hi[t] - lo[t]
+            close_pos_score = 0
+            if day_range > 0:
+                close_position = (cl[t] - lo[t]) / day_range
+                upper_shadow = hi[t] - cl[t]
+                shadow_ratio = upper_shadow / day_range
+                is_limit_up = pct >= 9.5
 
-            # --- MA 对齐评分 (最多 20 分) ---
-            ma_pts = _ma_alignment_score(m5, m10, m20, m60, cl[t])
-            tech_score += ma_pts
-            if ma_pts >= 12:
-                stat_ma += 1
+                if close_position > 0.95 and shadow_ratio < 0.03:
+                    close_pos_score = 25 if is_limit_up else 40
+                elif close_position > 0.90 and shadow_ratio < 0.06:
+                    close_pos_score = 20 if is_limit_up else 35
+                elif close_position > 0.85 and shadow_ratio < 0.10:
+                    close_pos_score = 18 if is_limit_up else 30
+                elif close_position > 0.70 and shadow_ratio < 0.20:
+                    close_pos_score = 15 if is_limit_up else 22
+                elif close_position > 0.50:
+                    close_pos_score = 10 if is_limit_up else 12
+                elif close_position > 0.30:
+                    close_pos_score = 5
+                else:
+                    close_pos_score = -5
 
-            # --- 成交量突破评分 (最多 15 分) ---
-            vol_pts = _volume_breakout_score(vl, t, vol_mul)
-            tech_score += vol_pts
-            if vol_pts >= 8:
+                if shadow_ratio > 0.50:
+                    close_pos_score -= 15
+                elif shadow_ratio > 0.35:
+                    close_pos_score -= 8
+                elif shadow_ratio > 0.20:
+                    close_pos_score -= 3
+
+            score += close_pos_score
+            if close_pos_score >= 30:
+                stat_close += 1
+
+            # --- 因子2: 连续放量 (-5~+20分) ---
+            vol_score = 0
+            if t >= 3:
+                vols_recent = vl[t - 2:t + 1]
+                if vols_recent[0] > 0 and vols_recent[1] > 0:
+                    vol_increasing = vols_recent[0] < vols_recent[1] < vols_recent[2]
+                    if vol_increasing:
+                        vol_ratio_3d = vols_recent[2] / max(vols_recent[0], 1)
+                        if vol_ratio_3d > 2.5:
+                            vol_score = 20
+                        elif vol_ratio_3d > 1.8:
+                            vol_score = 15
+                        else:
+                            vol_score = 10
+                avg_5d = sum(vl[t - 5:t]) / 5 if t >= 5 else 1
+                if vl[t] < avg_5d * 0.7 and pct > 0:
+                    vol_score = -5
+            elif t >= 1:
+                prev_vol = vl[t - 1] if t > 0 else 1
+                vol_ratio = vl[t] / max(prev_vol, 1)
+                if vol_ratio > 2.0:
+                    vol_score = 15
+                elif vol_ratio > 1.5:
+                    vol_score = 8
+
+            score += vol_score
+            if vol_score >= 10:
                 stat_vol += 1
 
-            # --- 价格突破评分 (最多 10 分) ---
-            hn = 0
-            for j in range(t - 1, max(0, t - break_n) - 1, -1):
-                hn = max(hn, hi[j])
-            brk_pts = 10 if cl[t] > hn else 0
-            tech_score += brk_pts
-            if brk_pts > 0:
-                stat_brk += 1
+            # --- 因子3: 均线斜率加速 (-10~+15分) ---
+            ma_score = 0
+            if m5 and m10 and m20 and t >= 5:
+                ma5_vals = []
+                if len(cl) >= 5:
+                    for i in range(max(0, t - 4), t + 1):
+                        seg = cl[max(0, i - 4):i + 1]
+                        if len(seg) == 5:
+                            ma5_vals.append(sum(seg) / 5)
+                if len(ma5_vals) >= 3:
+                    slope_now = ma5_vals[-1] - ma5_vals[-2]
+                    slope_prev = ma5_vals[-2] - ma5_vals[-3]
+                    if slope_now > 0 and slope_prev > 0:
+                        if slope_now > slope_prev * 1.5:
+                            ma_score = 15
+                        elif slope_now > slope_prev:
+                            ma_score = 10
+                        else:
+                            ma_score = 5
+                    elif slope_now > 0 and slope_prev <= 0:
+                        ma_score = 12
+                    elif slope_now <= 0 and slope_prev > 0:
+                        ma_score = -10
+                    elif slope_now <= 0:
+                        ma_score = -5
+                if m5 > m10 > m20:
+                    ma_score += 3
 
-            # --- K 线实体比评分 (最多 5 分) ---
-            body = cl[t] - kl[t]['o']
-            rng = hi[t] - kl[t]['lo']
-            body_pts = 5 if (rng > 0 and body / rng > body_r) else 0
-            tech_score += body_pts
+            score += ma_score
+            if ma_score >= 10:
+                stat_ma += 1
 
-            # --- RSI 安全区评分 (最多 15 分) ---
-            rsi = _wp2_calc_rsi(cl)
-            rsi_pts = 0
-            if rsi is not None:
-                rsi_pts = _rsi_score(rsi, rsi_lo, rsi_hi)
-            tech_score += rsi_pts
-            if rsi_pts >= 8:
-                stat_rsi += 1
+            # --- 因子4: 波动率收缩突破 (-5~+15分) ---
+            atr_score = 0
+            if t >= 10:
+                tr_list = []
+                for i in range(max(1, t - 9), t + 1):
+                    tr = max(hi[i] - lo[i], abs(hi[i] - cl[i - 1]), abs(lo[i] - cl[i - 1]))
+                    tr_list.append(tr)
+                if len(tr_list) >= 5:
+                    atr_5 = sum(tr_list[-5:]) / 5
+                    atr_10 = sum(tr_list) / len(tr_list) if tr_list else 1
+                    if atr_10 > 0:
+                        atr_ratio = atr_5 / atr_10
+                        if atr_ratio < 0.8 and cl[t] > hi[t - 1]:
+                            atr_score = 15
+                        elif atr_ratio < 0.9 and pct > 2:
+                            atr_score = 10
+                        elif atr_ratio > 1.5:
+                            atr_score = -5
 
-            # --- MACD 正向评分 (最多 10 分) ---
-            mc = _wp2_calc_macd(cl)
-            macd_pts = 0
-            if mc and mc['dif'] is not None and mc['dea'] is not None and mc['macd'] is not None:
-                macd_pts = _macd_score(mc)
-            tech_score += macd_pts
-            if macd_pts >= 5:
-                stat_mc += 1
+            score += atr_score
+            if atr_score >= 10:
+                stat_atr += 1
+
+            # --- 因子5: 量价配合 (-10~+15分) ---
+            vp_score = 0
+            if t >= 5:
+                up_days = 0
+                down_days = 0
+                vol_up_on_up = 0
+                vol_up_on_down = 0
+                for i in range(t - 4, t + 1):
+                    chg = cl[i] - op[i]
+                    if chg > 0:
+                        up_days += 1
+                        if i > 0 and vl[i] > vl[i - 1]:
+                            vol_up_on_up += 1
+                    elif chg < 0:
+                        down_days += 1
+                        if i > 0 and vl[i] < vl[i - 1]:
+                            vol_up_on_down += 1
+                if up_days >= 3:
+                    if vol_up_on_up >= 2:
+                        vp_score = 15
+                    elif vol_up_on_up >= 1:
+                        vp_score = 10
+                if down_days >= 2 and vol_up_on_down >= 1:
+                    vp_score = max(vp_score, 5)
+                if pct > 3 and vl[t] < vl[t - 1] * 0.8:
+                    vp_score = -10
+                elif pct > 2 and vl[t] < vl[t - 1] * 0.9:
+                    vp_score = min(vp_score, -5)
+
+            score += vp_score
+            if vp_score >= 10:
+                stat_vp += 1
+
+            # --- 因子6: 风险排除 (-30~-5分) ---
+            risk_score = 0
+            if t >= 2:
+                limit_up_count = 0
+                for i in range(t - 1, max(t - 4, -1), -1):
+                    day_pct = (cl[i] - op[i]) / op[i] * 100 if op[i] > 0 else 0
+                    if day_pct >= 9.5:
+                        limit_up_count += 1
+                    else:
+                        break
+                if limit_up_count >= 2:
+                    risk_score -= 15
+                elif limit_up_count >= 1:
+                    risk_score -= 5
+            if t >= 1 and lo[t] > hi[t - 1]:
+                gap = (lo[t] - hi[t - 1]) / hi[t - 1]
+                if gap > 0.05:
+                    risk_score -= 10
+                elif gap > 0.03:
+                    risk_score -= 5
+            if pct > 9.5:
+                risk_score -= 30
+            elif pct > 8:
+                risk_score -= 15
+            elif pct > 7:
+                risk_score -= 8
+
+            score += risk_score
 
             # 最低分数门槛
-            if tech_score < min_score:
+            if score < min_score:
                 continue
 
-            # 保留布尔结果用于 ma 显示字段
-            ma_aligned = _ma_alignment_filter(m5, m10, m20, m60, cl[t])
-
-            base_score = _wp2_calc_score({'vr': float(s.get('f10', 0)), 'ch': float(s.get('f3', 0)), 'rsi': rsi if rsi is not None else 0, 'cap': float(s.get('f21', 0))})
-            combined_score = round(tech_score * 0.6 + base_score * 0.4, 1)
+            # 保留MA对齐显示字段
+            ma_aligned = False
+            if m5 and m10 and m20 and m60:
+                ma_aligned = _ma_alignment_filter(m5, m10, m20, m60, cl[t])
 
             results.append({
                 'code': code,
                 'name': s.get('f14', ''),
                 'price': round(cl[t], 2),
-                'ch': float(s.get('f3', 0)),
+                'ch': round(pct, 2),
                 'amt': float(s.get('f6', 0)),
                 'cap': float(s.get('f21', 0)),
                 'vr': float(s.get('f10', 0)),
                 'to': float(s.get('f8', 0)),
-                'ma': f"{m5:.1f}>{m10:.1f}" if ma_aligned else f"{m5:.1f}/{m10:.1f}",
+                'ma': f"{m5:.1f}>{m10:.1f}" if ma_aligned and m5 and m10 else f"{m5:.1f}/{m10:.1f}" if m5 and m10 else "-",
                 'rsi': round(rsi, 1) if rsi is not None else 0,
                 'macd': round(mc['macd'], 4) if mc and mc['macd'] is not None else 0,
-                'score': combined_score,
-                'tech_score': tech_score,
+                'score': round(score, 1),
+                'tech_score': round(score, 1),
+                'pe': round(float(s.get('f9', 0)), 1) if s.get('f9') and float(s.get('f9', 0)) > 0 else 0,
+                'pb': round(float(s.get('f23', 0)), 2) if s.get('f23') and float(s.get('f23', 0)) > 0 else 0,
             })
 
-        filter_log.append({'n': 'MA对齐(>=12)', 'b': len(s1), 'a': stat_ma})
-        filter_log.append({'n': '量能(>=8)', 'b': len(s1), 'a': stat_vol})
-        filter_log.append({'n': '价格突破', 'b': len(s1), 'a': stat_brk})
-        filter_log.append({'n': 'RSI安全(>=8)', 'b': len(s1), 'a': stat_rsi})
-        filter_log.append({'n': 'MACD正向(>=5)', 'b': len(s1), 'a': stat_mc})
+        filter_log.append({'n': '收盘位置(>=30)', 'b': len(s1), 'a': stat_close})
+        filter_log.append({'n': '连续放量(>=10)', 'b': len(s1), 'a': stat_vol})
+        filter_log.append({'n': '均线加速(>=10)', 'b': len(s1), 'a': stat_ma})
+        filter_log.append({'n': '波动突破(>=10)', 'b': len(s1), 'a': stat_atr})
+        filter_log.append({'n': '量价配合(>=10)', 'b': len(s1), 'a': stat_vp})
         filter_log.append({'n': f'达标(>={min_score})', 'b': len(s1), 'a': len(results)})
 
         results.sort(key=lambda x: x['score'], reverse=True)
@@ -647,6 +794,63 @@ def _execute_wp2_pick(min_cap=30, max_cap=300, min_amt=3, vol_mul=1.5, break_n=2
             return item
         with ThreadPoolExecutor(max_workers=8) as _exec:
             list(_exec.map(_attach_industry, final))
+
+
+        # Add buy/sell points and V5 evaluation
+        try:
+            from modules.scoring import calculate_buy_sell, multi_factor_evaluate
+            from modules.technical import calculate_technical_indicators
+            for stock in final:
+                try:
+                    code = stock.get('code', '')
+                    tech = calculate_technical_indicators(code, days=30) if code else None
+                    stock_for_bs = {
+                        'code': code, 'name': stock.get('name', ''),
+                        'price': stock.get('price', 0),
+                    'pe': stock.get('pe', 0), 'pb': stock.get('pb', 0),
+                        'market_cap': stock.get('cap', 0),
+                        'turnover_rate': stock.get('to', stock.get('turnover_rate', 0)),
+                        'change_pct': stock.get('ch', 0),
+                    }
+                    # Fetch financial data for proper V5 evaluation
+                    try:
+                        from modules.data_fetcher import get_financial_data
+                        fin_map = get_financial_data([code])
+                        fin = fin_map.get(code)
+                        if fin:
+                            stock_for_bs['roe'] = fin.roe
+                            stock['roe'] = fin.roe  # V5.5: 保存ROE供后续过滤
+                            stock_for_bs['gross_margin'] = fin.gross_margin
+                            stock_for_bs['net_margin'] = fin.net_margin
+                            stock_for_bs['rev_growth'] = fin.revenue_growth
+                            stock_for_bs['profit_growth'] = fin.profit_growth
+                            stock_for_bs['debt_ratio'] = fin.debt_ratio
+                    except Exception:
+                        pass
+                    bs = calculate_buy_sell(stock_for_bs, stock.get('score', 50), tech_data=tech)
+                    if bs:
+                        stock['buy_sell'] = bs
+                    # V5 multi-factor evaluation
+                    try:
+                        v5_result = multi_factor_evaluate(stock_for_bs)
+                        if v5_result:
+                            stock['v5_score'] = v5_result.get('v5_total') or v5_result.get('total_score')
+                            stock['v5_factors'] = v5_result.get('v5_factors') or v5_result.get('factors')
+                            stock['v5_reasons'] = v5_result.get('v5_reasons') or v5_result.get('reasons')
+                            stock['v5_recommendation'] = v5_result.get('v5_recommendation') or v5_result.get('recommendation')
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+        except Exception as e:
+            log.warning(f'WP2 buy_sell计算失败: {e}')
+
+        # V5.5: 过滤ROE<0的亏损股
+        pre_filter_count = len(final)
+        final = [s for s in final
+                 if not (isinstance(s.get('roe'), (int, float)) and s.get('roe') < 0)]
+        if len(final) < pre_filter_count:
+            log.info(f'WP2 ROE过滤: {pre_filter_count} -> {len(final)} (移除{pre_filter_count - len(final)}只亏损股)')
 
         log.info(f"尾盘选股完成: {len(final)} 只")
 

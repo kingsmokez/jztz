@@ -30,6 +30,7 @@
             --red: #cf4444;
             --red-bg: rgba(207,68,68,0.12);
             --gold: #d4a017;
+            --gold-bg: rgba(212,160,23,0.12);
             --pink: #cf4444;
             --cyan: #2d9e5f;
             --radius-sm: 4px;
@@ -2093,6 +2094,141 @@
             font-size: 20px;
             color: var(--text-muted);
         }
+
+        /* ===== 市场风险弹框 ===== */
+        .risk-modal-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            background: rgba(0,0,0,0.7);
+            backdrop-filter: blur(6px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: fadeIn 0.25s ease;
+        }
+        .risk-modal {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            width: 460px;
+            max-width: 92vw;
+            padding: 0;
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+        }
+        .risk-modal-header {
+            padding: 20px 24px 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+        .risk-modal-icon {
+            width: 44px; height: 44px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            flex-shrink: 0;
+        }
+        .risk-modal-icon.warn {
+            background: rgba(245,158,11,0.15);
+            border: 1px solid rgba(245,158,11,0.3);
+            color: #f59e0b;
+        }
+        .risk-modal-icon.danger {
+            background: rgba(239,68,68,0.15);
+            border: 1px solid rgba(239,68,68,0.3);
+            color: #ef4444;
+        }
+        .risk-modal-title {
+            font-size: 17px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+        .risk-modal-subtitle {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+        .risk-modal-body {
+            padding: 20px 24px;
+        }
+        .risk-modal-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+        .risk-stat {
+            text-align: center;
+            padding: 12px 8px;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+        .risk-stat-value {
+            font-size: 20px;
+            font-weight: 800;
+            font-variant-numeric: tabular-nums;
+        }
+        .risk-stat-value.down { color: var(--down-color); }
+        .risk-stat-value.up { color: var(--up-color); }
+        .risk-stat-value.neutral { color: var(--accent); }
+        .risk-stat-label {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+        .risk-modal-advice {
+            padding: 14px 16px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            font-size: 14px;
+            line-height: 1.7;
+            color: var(--text-secondary);
+        }
+        .risk-modal-advice.warn {
+            background: rgba(245,158,11,0.08);
+            border: 1px solid rgba(245,158,11,0.2);
+        }
+        .risk-modal-advice.danger {
+            background: rgba(239,68,68,0.08);
+            border: 1px solid rgba(239,68,68,0.2);
+        }
+        .risk-modal-advice strong { color: var(--text-primary); }
+        .risk-modal-advice .highlight { font-weight: 700; }
+        .risk-modal-advice .highlight.red { color: #ef4444; }
+        .risk-modal-advice .highlight.green { color: #2d9e5f; }
+        .risk-modal-advice .highlight.gold { color: #d4a017; }
+        .risk-modal-footer {
+            padding: 16px 24px 20px;
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+        .risk-btn {
+            padding: 10px 22px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            transition: all 0.15s ease;
+        }
+        .risk-btn-secondary {
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            border: 1px solid var(--border);
+        }
+        .risk-btn-secondary:hover { border-color: #555; color: var(--text-primary); }
+        .risk-btn-primary {
+            background: var(--accent);
+            color: #fff;
+        }
+        .risk-btn-primary:hover { background: var(--accent-hover); }
     </style>
 </head>
 <body>
@@ -2581,19 +2717,19 @@
             const starClass = starCount >= 5 ? 'star5' : starCount >= 4 ? 'star4' : starCount >= 3 ? 'star3' : starCount >= 2 ? 'star2' : starCount >= 1 ? 'star1' : '';
             const starsHTML = starCount > 0 ? `<div class="star-rating ${starClass}">${'<span class="star">★</span>'.repeat(starCount)}${'<span class="star empty">★</span>'.repeat(5 - starCount)}</div>` : '';
 
-            // 推荐文字（2026-04-13修复：覆盖所有后端推荐值）
+            // 推荐文字（基于后端推荐值或前端评分兜底）
             let recClass = '', recText = '';
-            if (stock.buy_sell) {
-                if (stock.buy_sell.recommendation === '优选') { recClass = 'strong'; recText = '优选'; }
-                else if (stock.buy_sell.recommendation === '可入') { recClass = 'caution'; recText = '可入'; }
-                else if (stock.buy_sell.recommendation === '逢低关注') { recClass = 'caution'; recText = '逢低关注'; }
-                else if (stock.buy_sell.recommendation === '等待更好买点') { recClass = 'wait'; recText = '等低点'; }
-                else if (stock.buy_sell.recommendation === '高估观望') { recClass = 'wait'; recText = '高估观望'; }
-                else if (stock.buy_sell.recommendation === '轻仓') { recClass = 'wait'; recText = '轻仓'; }
-                else if (stock.buy_sell.recommendation === '暂缓') { recClass = 'wait'; recText = '暂缓'; }
-                else if (stock.buy_sell.recommendation === '谨慎') { recClass = 'caution'; recText = '谨慎'; }
-                else if (stock.buy_sell.recommendation === '等回调') { recClass = 'wait'; recText = '等回调'; }
-            } else if (stock.v5_score >= 78) { recClass = 'strong'; recText = '优选'; }
+            const rec = stock.buy_sell ? stock.buy_sell.recommendation : '';
+            if (rec === '优选') { recClass = 'strong'; recText = '优选'; }
+            else if (rec === '可入') { recClass = 'caution'; recText = '可入'; }
+            else if (rec === '逢低关注') { recClass = 'caution'; recText = '逢低关注'; }
+            else if (rec === '等待更好买点') { recClass = 'wait'; recText = '等低点'; }
+            else if (rec === '高估观望') { recClass = 'wait'; recText = '高估观望'; }
+            else if (rec === '轻仓') { recClass = 'wait'; recText = '轻仓'; }
+            else if (rec === '暂缓') { recClass = 'wait'; recText = '暂缓'; }
+            else if (rec === '谨慎') { recClass = 'caution'; recText = '谨慎'; }
+            else if (rec === '等回调') { recClass = 'wait'; recText = '等回调'; }
+            else if (stock.v5_score >= 78) { recClass = 'strong'; recText = '优选'; }
             else if (stock.v5_score >= 68) { recClass = 'caution'; recText = '可入'; }
             else if (stock.v5_score >= 58) { recClass = 'wait'; recText = '关注'; }
 
@@ -2605,7 +2741,7 @@
                         <div class="stock-code">${stock.code} ${stock.market_cap > 0 ? '· ' + stock.market_cap.toFixed(0) + '亿' : ''} ${stock.industry ? '· ' + stock.industry : ''}</div>
                     </div>
                     <div class="stock-score">
-                        <div class="score-num">${stock.v5_score}</div>
+                        <div class="score-num">${stock.v5_score.toFixed(2)}</div>
                         <div class="score-label">综合评分</div>
                     </div>
                 </div>
@@ -2778,19 +2914,19 @@
                 const starClass = starCount >= 5 ? 'star5' : starCount >= 4 ? 'star4' : starCount >= 3 ? 'star3' : starCount >= 2 ? 'star2' : starCount >= 1 ? 'star1' : '';
                 const starsHTML = starCount > 0 ? `<div class="star-rating ${starClass}">${'<span class="star">★</span>'.repeat(starCount)}${'<span class="star empty">★</span>'.repeat(5 - starCount)}</div>` : '';
 
-                // 推荐文字（2026-04-13修复：覆盖所有后端推荐值）
+                // 推荐文字（基于后端推荐值或前端评分兜底）
                 let recClass = '', recText = '';
-                if (stock.buy_sell) {
-                    if (stock.buy_sell.recommendation === '优选') { recClass = 'strong'; recText = '优选'; }
-                    else if (stock.buy_sell.recommendation === '可入') { recClass = 'caution'; recText = '可入'; }
-                    else if (stock.buy_sell.recommendation === '逢低关注') { recClass = 'caution'; recText = '逢低关注'; }
-                    else if (stock.buy_sell.recommendation === '等待更好买点') { recClass = 'wait'; recText = '等低点'; }
-                    else if (stock.buy_sell.recommendation === '高估观望') { recClass = 'wait'; recText = '高估观望'; }
-                    else if (stock.buy_sell.recommendation === '轻仓') { recClass = 'wait'; recText = '轻仓'; }
-                    else if (stock.buy_sell.recommendation === '暂缓') { recClass = 'wait'; recText = '暂缓'; }
-                    else if (stock.buy_sell.recommendation === '谨慎') { recClass = 'caution'; recText = '谨慎'; }
-                    else if (stock.buy_sell.recommendation === '等回调') { recClass = 'wait'; recText = '等回调'; }
-                } else if (stock.v5_score >= 78) { recClass = 'strong'; recText = '优选'; }
+                const rec = stock.buy_sell ? stock.buy_sell.recommendation : '';
+                if (rec === '优选') { recClass = 'strong'; recText = '优选'; }
+                else if (rec === '可入') { recClass = 'caution'; recText = '可入'; }
+                else if (rec === '逢低关注') { recClass = 'caution'; recText = '逢低关注'; }
+                else if (rec === '等待更好买点') { recClass = 'wait'; recText = '等低点'; }
+                else if (rec === '高估观望') { recClass = 'wait'; recText = '高估观望'; }
+                else if (rec === '轻仓') { recClass = 'wait'; recText = '轻仓'; }
+                else if (rec === '暂缓') { recClass = 'wait'; recText = '暂缓'; }
+                else if (rec === '谨慎') { recClass = 'caution'; recText = '谨慎'; }
+                else if (rec === '等回调') { recClass = 'wait'; recText = '等回调'; }
+                else if (stock.v5_score >= 78) { recClass = 'strong'; recText = '优选'; }
                 else if (stock.v5_score >= 68) { recClass = 'caution'; recText = '可入'; }
                 else if (stock.v5_score >= 58) { recClass = 'wait'; recText = '关注'; }
 
@@ -2803,7 +2939,7 @@
                             <div class="stock-code">${stock.code} ${stock.market_cap > 0 ? '· ' + stock.market_cap.toFixed(0) + '亿' : ''} ${stock.industry ? '· ' + stock.industry : ''}</div>
                         </div>
                         <div class="stock-score">
-                            <div class="score-num">${stock.v5_score}</div>
+                            <div class="score-num">${stock.v5_score.toFixed(2)}</div>
                             <div class="score-label">综合评分</div>
                         </div>
                     </div>
@@ -3132,6 +3268,86 @@
     // ===== 页面加载自动选股 =====
     // 延迟1秒自动执行
     setTimeout(runPick, 1000);
+
+    // ===== 市场风险弹框 =====
+    (async function checkMarketRisk() {
+        try {
+            const resp = await fetch('/api/market_env');
+            const env = await resp.json();
+            const chg = env.change_pct || 0;
+            const trend = env.trend || 'unknown';
+            const status = env.status || 'unknown';
+
+            // 只在市场明显下跌时弹框
+            if (chg >= -0.5) return;
+
+            const isDanger = chg < -2 || (trend === 'bear' && chg < -1);
+            const level = isDanger ? 'danger' : 'warn';
+            const iconClass = isDanger ? 'danger' : 'warn';
+            const iconEmoji = isDanger ? '!!' : '!';
+            const title = isDanger ? '市场风险较高' : '市场风险偏大';
+            const subtitle = isDanger
+                ? '大盘跌幅较大，注意控制风险'
+                : '大盘走弱，谨慎操作';
+
+            // 建议内容
+            let advice = '';
+            if (isDanger) {
+                advice = `<strong>今日大盘跌幅超2%，系统性风险较大，建议：</strong><br>` +
+                    `1. <span class="highlight red">已持仓</span>：优先考虑减仓或止损，尤其是弱势股，不要补仓<br>` +
+                    `2. <span class="highlight gold">新开仓</span>：如需操作，仅关注逆势抗跌的强势股，仓位控制在25%以内<br>` +
+                    `3. <span class="highlight green">空仓观望</span>：大跌日空仓是最优策略，等待企稳信号再入场<br>` +
+                    `4. 严格止损纪律：个股跌破5日线或亏损超3%立即出局`;
+            } else {
+                advice = `<strong>大盘走弱，操作需谨慎：</strong><br>` +
+                    `1. <span class="highlight gold">轻仓操作</span>：总仓位控制在50%以内，单票不超过25%<br>` +
+                    `2. <span class="highlight gold">选股标准</span>：优先选择逆势上涨、量价配合的强势股<br>` +
+                    `3. <span class="highlight red">回避</span>：高位股、缩量下跌股、破位股<br>` +
+                    `4. 设好止损位，不追涨不补仓`;
+            }
+
+            const chgStr = (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%';
+            const trendLabel = {bear:'熊市', bull:'牛市', range:'震荡', unknown:'--'}[trend] || '--';
+            const statusLabel = {strong_down:'暴跌', down:'下跌', range:'震荡', up:'上涨', strong_up:'大涨', unknown:'--'}[status] || '--';
+
+            const modal = document.createElement('div');
+            modal.className = 'risk-modal-overlay';
+            modal.innerHTML = `
+                <div class="risk-modal">
+                    <div class="risk-modal-header">
+                        <div class="risk-modal-icon ${iconClass}">${iconEmoji}</div>
+                        <div>
+                            <div class="risk-modal-title">${title}</div>
+                            <div class="risk-modal-subtitle">${subtitle}</div>
+                        </div>
+                    </div>
+                    <div class="risk-modal-body">
+                        <div class="risk-modal-stats">
+                            <div class="risk-stat">
+                                <div class="risk-stat-value down">${chgStr}</div>
+                                <div class="risk-stat-label">沪深300</div>
+                            </div>
+                            <div class="risk-stat">
+                                <div class="risk-stat-value neutral">${trendLabel}</div>
+                                <div class="risk-stat-label">趋势</div>
+                            </div>
+                            <div class="risk-stat">
+                                <div class="risk-stat-value neutral">${statusLabel}</div>
+                                <div class="risk-stat-label">状态</div>
+                            </div>
+                        </div>
+                        <div class="risk-modal-advice ${level}">${advice}</div>
+                    </div>
+                    <div class="risk-modal-footer">
+                        <button class="risk-btn risk-btn-secondary" onclick="this.closest('.risk-modal-overlay').remove()">暂不操作</button>
+                        <button class="risk-btn risk-btn-primary" onclick="this.closest('.risk-modal-overlay').remove()">我知道了</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(modal);
+        } catch (e) {
+            // 静默失败，不影响正常使用
+        }
+    })();
 
     // ===== 热点板块 =====
     let newsLoaded = false;
