@@ -663,10 +663,11 @@ _PID_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".app.pid")
 def _acquire_pid_lock() -> bool:
     """获取 PID 文件锁，防止多实例同时运行。
 
-    如果端口已被占用，自动终止旧进程再启动。
+    如果端口已被占用，自动终止旧进程再启动（跨平台兼容）。
     返回 True 表示可以安全启动。
     """
     port = _config.server.port
+    is_windows = sys.platform == "win32"
 
     # 检查端口是否已被其他进程占用
     try:
@@ -679,20 +680,35 @@ def _acquire_pid_lock() -> bool:
                 log.warning(f"端口 {port} 已被占用，尝试终止占用进程...")
                 import subprocess
                 try:
-                    # 用 netstat 找到占用端口的 PID 并杀掉
-                    output = subprocess.check_output(
-                        f'netstat -ano | findstr ":{port} " | findstr "LISTENING"',
-                        shell=True, text=True, timeout=5
-                    )
-                    for line in output.strip().splitlines():
-                        parts = line.split()
-                        if parts:
-                            pid = parts[-1]
-                            log.info(f"终止占用端口的进程 PID={pid}")
-                            subprocess.run(
-                                ["taskkill", "/F", "/PID", pid],
-                                capture_output=True, timeout=5
-                            )
+                    if is_windows:
+                        # Windows: netstat -ano + taskkill
+                        output = subprocess.check_output(
+                            f'netstat -ano | findstr ":{port} " | findstr "LISTENING"',
+                            shell=True, text=True, timeout=5
+                        )
+                        for line in output.strip().splitlines():
+                            parts = line.split()
+                            if parts:
+                                pid = parts[-1]
+                                log.info(f"终止占用端口的进程 PID={pid}")
+                                subprocess.run(
+                                    ["taskkill", "/F", "/PID", pid],
+                                    capture_output=True, timeout=5
+                                )
+                    else:
+                        # Linux/macOS: lsof + kill
+                        output = subprocess.check_output(
+                            f'lsof -iTCP:{port} -sTCP:LISTEN -t',
+                            shell=True, text=True, timeout=5
+                        )
+                        for pid in output.strip().splitlines():
+                            pid = pid.strip()
+                            if pid:
+                                log.info(f"终止占用端口的进程 PID={pid}")
+                                subprocess.run(
+                                    ["kill", "-9", pid],
+                                    capture_output=True, timeout=5
+                                )
                     time.sleep(3)  # 等待端口释放
                 except Exception as e:
                     log.warning(f"终止旧进程失败: {e}")

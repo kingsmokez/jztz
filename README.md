@@ -238,7 +238,7 @@ chmod +x run.sh
 nohup ./run.sh >> logs/stdout.log 2>> logs/stderr.log &
 ```
 
-> 💡 使用 `nohup` 后台运行，关闭终端不影响服务。停止服务用 `kill $(cat .app.pid)` 或 `pkill -f web_app.py`。
+> 💡 使用 `nohup` 后台运行，关闭终端不影响服务。停止服务用 `pkill -f web_app.py` 或 `kill $(pgrep -f web_app.py)`。
 
 ### 方式五：手动安装
 
