@@ -103,7 +103,7 @@ def health():
     overall = "ok" if all(c.get("status") == "ok" for c in components.values()) else "degraded"
     return jsonify({
         "status": overall,
-        "version": "v17",
+        "version": "v20",
         "components": components,
         "circuits": circuits,
         "ts": int(time.time()),

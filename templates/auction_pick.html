@@ -797,6 +797,50 @@
 
         .confirm-badge.pass { background: var(--green-bg); color: var(--green); }
         .confirm-badge.fail { background: var(--red-bg); color: var(--red); }
+        .confirm-badge.warn { background: rgba(251, 191, 36, 0.15); color: var(--gold); }
+
+        /* V2 新增字段样式 */
+        .advice-text {
+            margin-top: 4px;
+            font-size: 11px;
+            color: var(--gold);
+            line-height: 1.4;
+        }
+        .buy-advice {
+            margin-top: 4px;
+            font-size: 11px;
+            color: #9CA3AF;
+            display: flex;
+            gap: 12px;
+        }
+        .buy-advice b { color: var(--green); font-weight: 600; }
+        .score-breakdown {
+            margin-top: 6px;
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 4px;
+        }
+        .bd-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-size: 9px;
+            color: #6B7280;
+        }
+        .bd-label { margin-bottom: 2px; }
+        .bd-bar {
+            width: 100%;
+            height: 3px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        .bd-fill {
+            height: 100%;
+            border-radius: 2px;
+            transition: width 0.3s ease;
+        }
+        .bd-val { margin-top: 2px; font-weight: 600; color: #D1D5DB; }
 
         .action-btn {
             padding: 6px 10px;
@@ -882,6 +926,7 @@
             color: var(--text-muted);
         }
     </style>
+    <script src="/api/js/common.js"></script>
 </head>
 <body>
     <!-- 导航栏 -->
@@ -1086,7 +1131,7 @@
 
         <div class="footer">
             <p>价值选股 · 早盘竞价选股系统</p>
-            <p>策略版本 v18 | 适用市场：A股主板+创业板</p>
+            <p>策略版本 v20 | 适用市场：A股主板+创业板</p>
             <p style="color: var(--red); margin-top: 8px;">⚠️ 风险提示：早盘波动大，注意滑点控制；严格止损，不补仓不格局</p>
         </div>
     </div>
@@ -1414,6 +1459,24 @@
                     marketEnv.querySelector('.value').textContent = '观望';
                     marketEnv.querySelector('.value').style.color = 'var(--red)';
                 }
+
+                // V2: 增强大盘信息（5日趋势+北向+情绪）
+                let v2Tip = '';
+                if (data.market_info.idx_5d_change_pct !== undefined) {
+                    v2Tip += `5日: ${data.market_info.idx_5d_change_pct.toFixed(2)}%  `;
+                }
+                if (data.market_info.northbound_net !== undefined) {
+                    v2Tip += `北向: ${data.market_info.northbound_net.toFixed(1)}亿  `;
+                }
+                if (data.market_info.sentiment) {
+                    v2Tip += `情绪: ${data.market_info.sentiment}(${(data.market_info.sentiment_score || 0).toFixed(0)})`;
+                }
+                if (v2Tip) {
+                    marketEnv.title = v2Tip;
+                    // 如果有 market_tip 元素则更新
+                    const tipEl = document.getElementById('marketTip');
+                    if (tipEl) tipEl.textContent = v2Tip;
+                }
             }
         }
 
@@ -1448,6 +1511,35 @@
                 const gapClass = stock.gap_pct >= 0 ? 'up' : 'down';
                 const gapValue = (stock.gap_pct >= 0 ? '+' : '') + (stock.gap_pct * 100).toFixed(2) + '%';
 
+                // V2: 评分明细
+                const bd = stock.score_breakdown || {};
+                const advice = stock.buy_advice || {};
+                const kline = stock.kline_summary || {};
+
+                // V2: 风险等级徽章
+                const riskBadge = advice.risk_level === 'high'
+                    ? '<span class="confirm-badge fail">高风险</span>'
+                    : advice.risk_level === 'medium'
+                    ? '<span class="confirm-badge warn">中风险</span>'
+                    : advice.risk_level === 'low'
+                    ? '<span class="confirm-badge pass">低风险</span>'
+                    : '';
+
+                // V4: 策略分支徽章（高开延续 / 低开反转）
+                const branchBadge = (stock.strategy_branch === 'low_open_reversal')
+                    ? '<span class="confirm-badge warn">低开反转</span>'
+                    : '<span class="confirm-badge pass">高开延续</span>';
+
+                // V2: 板块轮动徽章
+                const sectorBadge = stock.sector_bonus > 0
+                    ? `<span class="confirm-badge pass">板块+${stock.sector_bonus.toFixed(0)}</span>`
+                    : '';
+
+                // V2: 负面过滤原因
+                const negativeBadge = stock.negative_filter_reason
+                    ? `<span class="confirm-badge fail">${stock.negative_filter_reason}</span>`
+                    : '';
+
                 // 竞价确认徽章
                 const confirmBadges = [];
                 if (stock.gap_ok) confirmBadges.push('<span class="confirm-badge pass">高开✓</span>');
@@ -1475,13 +1567,42 @@
                 else if (turnover >= 1.5) turnoverClass = 'bad'; // 1.5-5% 红色
                 const turnoverValue = turnover.toFixed(2) + '%';
 
+                // V2: 买入建议文字
+                const buyLow = advice.buy_price_low ? advice.buy_price_low.toFixed(2) : '--';
+                const buyHigh = advice.buy_price_high ? advice.buy_price_high.toFixed(2) : '--';
+                const stopLoss = advice.stop_loss ? advice.stop_loss.toFixed(2) : '--';
+
+                // V2: 评分明细条（V4加入反转加分）
+                const breakdownBars = [
+                    { label: '高开', val: bd.gap_score || 0, max: 25, color: '#60A5FA' },
+                    { label: '量比', val: bd.volume_score || 0, max: 20, color: '#FBBF24' },
+                    { label: '金额', val: bd.amount_score || 0, max: 20, color: '#34D399' },
+                    { label: '板块', val: bd.sector_score || 0, max: 15, color: '#A78BFA' },
+                    { label: '大盘', val: bd.market_score || 0, max: 10, color: '#F472B6' },
+                    { label: '位置', val: bd.position_score || 0, max: 10, color: '#22D3EE' },
+                    { label: '反转', val: bd.reversal_bonus || 0, max: 35, color: '#F59E0B' },
+                    { label: '惩罚', val: bd.penalty || 0, max: 20, color: '#F87171' }
+                ].filter(b => b.val !== 0 || b.label !== '反转')  // 反转加分0时不显示
+                .map(b => {
+                    const w = Math.max(0, Math.min(100, (Math.abs(b.val) / b.max) * 100));
+                    return `<div class="bd-item" title="${b.label}: ${b.val.toFixed(1)}"><span class="bd-label">${b.label}</span><div class="bd-bar"><div class="bd-fill" style="width:${w}%;background:${b.color}"></div></div><span class="bd-val">${b.val.toFixed(1)}</span></div>`;
+                }).join('');
+
                 html += `
                     <div class="stock-item" onclick="showStockDetail('${stock.code}')">
                         <div class="rank ${rankClass}">${idx + 1}</div>
                         <div class="stock-info">
-                            <div class="name">${stock.name}</div>
+                            <div class="name">${stock.name} ${branchBadge} ${riskBadge} ${sectorBadge} ${negativeBadge}</div>
                             <div class="code">${stock.code}${stock.industry ? ' · ' + stock.industry : ''}</div>
                             <div class="confirm-badges">${confirmBadges.join('')}</div>
+                            ${advice.advice_text ? `<div class="advice-text">${advice.advice_text}</div>` : ''}
+                            <div class="buy-advice">
+                                <span>买入: <b>${buyLow} ~ ${buyHigh}</b></span>
+                                <span>止损: <b style="color:var(--red)">${stopLoss}</b></span>
+                                <span>持有: <b style="color:var(--blue)">${advice.hold_days || 3}日</b></span>
+                                ${advice.trailing_stop ? `<span>移动止盈: <b style="color:var(--purple)">+${advice.trailing_stop.activate_pct}%后回撤${advice.trailing_stop.drawdown_pct}%</b></span>` : ''}
+                            </div>
+                            <div class="score-breakdown">${breakdownBars}</div>
                         </div>
                         <div class="gap-info">
                             <div class="gap-value ${gapClass}">${gapValue}</div>

@@ -152,11 +152,13 @@ def _validate_username(username: str) -> str:
 # File-backed user store
 # ---------------------------------------------------------------------------
 class UserStore:
-    """Thread-safe JSON store of users."""
+    """Thread-safe JSON store of users — 带内存缓存，避免每次请求读文件"""
 
     def __init__(self, path: str = DEFAULT_FILE) -> None:
         self.path = path
         self._lock = threading.RLock()
+        self._cache: Optional[Dict[str, Any]] = None
+        self._cache_mtime: float = 0.0  # 文件修改时间，用于检测外部变更
         os.makedirs(os.path.dirname(path), exist_ok=True)
         if not os.path.exists(path):
             self._write_atomic(self._empty())
@@ -166,22 +168,42 @@ class UserStore:
         return {"version": SCHEMA_VERSION, "users": []}
 
     def _read(self) -> Dict[str, Any]:
+        """读取用户数据 — 优先使用内存缓存，文件未变时不读磁盘"""
+        # 检查文件修改时间，如果没变就直接用缓存
+        try:
+            mtime = os.path.getmtime(self.path)
+        except OSError:
+            mtime = 0.0
+
+        if self._cache is not None and mtime == self._cache_mtime:
+            return self._cache
+
+        # 文件有变化或首次读取，从磁盘加载
         try:
             with open(self.path, "r", encoding="utf-8") as f:
                 data = json.load(f)
         except FileNotFoundError:
-            return self._empty()
+            data = self._empty()
         except (json.JSONDecodeError, OSError):
-            return self._empty()
+            data = self._empty()
         if "users" not in data or not isinstance(data["users"], list):
-            return self._empty()
+            data = self._empty()
+
+        self._cache = data
+        self._cache_mtime = mtime
         return data
+
+    def _invalidate_cache(self) -> None:
+        """写操作后使缓存失效"""
+        self._cache = None
+        self._cache_mtime = 0.0
 
     def _write_atomic(self, data: Dict[str, Any]) -> None:
         tmp = self.path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         os.replace(tmp, self.path)
+        self._invalidate_cache()
 
     # ---- queries --------------------------------------------------------
     def list(self) -> List[Dict[str, Any]]:

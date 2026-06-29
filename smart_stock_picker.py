@@ -18,7 +18,7 @@ from modules.stock_picker import run_picker
 def main() -> None:
     config = load_config()
     log.info("=" * 60)
-    log.info("价值投资之王智能选股系统 v18")
+    log.info("价值投资之王智能选股系统 v20")
     log.info("=" * 60)
 
     if len(sys.argv) > 1:

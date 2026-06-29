@@ -59,14 +59,17 @@ EXPOSE 5000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD curl --fail --silent http://localhost:${PORT}/api/live || exit 1
 
-# gunicorn is the production WSGI server.  gthread worker-class is
-# friendly to the SSE endpoint which holds long-lived connections.
+# gunicorn production WSGI server.
+# gthread worker-class is friendly to SSE connections.
+# With SSE Hub (queue-based), threads are no longer permanently held.
+# 4 workers x 8 threads = 32 concurrent requests, supports ~100+ online users.
 CMD ["sh", "-c", "exec gunicorn \
-    --workers ${GUNICORN_WORKERS} \
-    --threads ${GUNICORN_THREADS} \
+    --workers ${GUNICORN_WORKERS:-4} \
+    --threads ${GUNICORN_THREADS:-8} \
     --bind 0.0.0.0:${PORT} \
     --worker-class gthread \
     --timeout 300 --graceful-timeout 300 \
+    --max-requests 5000 --max-requests-jitter 500 \
     --access-logfile - \
     --error-logfile - \
     web_app:app"]

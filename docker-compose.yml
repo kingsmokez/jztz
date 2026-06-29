@@ -23,8 +23,8 @@ services:
     environment:
       PORT: "5000"
       PYTHONUNBUFFERED: "1"
-      GUNICORN_WORKERS: "2"
-      GUNICORN_THREADS: "4"
+      GUNICORN_WORKERS: "4"
+      GUNICORN_THREADS: "8"
     volumes:
       # Persist logs outside the container so they survive `docker compose down`
       - ./logs:/app/logs
@@ -44,11 +44,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "2.0"
-          memory: 1024M
+          cpus: "4.0"
+          memory: 2048M
         reservations:
-          cpus: "0.5"
-          memory: 256M
+          cpus: "1.0"
+          memory: 512M
 
   # Optional Redis sidecar for future cache backend.  Disabled by default —
   # uncomment `depends_on` + `app` env vars when wiring it up.

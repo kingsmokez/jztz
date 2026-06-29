@@ -47,6 +47,7 @@ htmlcov/
 coverage_*.txt
 coverage_baseline.txt
 test_output.txt
+_test_output.txt
 
 # Build / scan artifacts
 .codegraph/
@@ -54,6 +55,13 @@ test_output.txt
 modules/.dexter/
 modules/dexter/
 archive/
+
+# AI dev tool configs (not needed for program)
+.omc/
+.omo/
+.reasonix/
+reasonix.toml
+.vibeyardignore
 
 # Runtime cache files
 daily_pick_cache.json
@@ -67,37 +75,25 @@ backtest/
 # OS
 .DS_Store
 Thumbs.db
+nul
 
-# Backup files (Phase 1 Task 4: v19 重构后 *.bak 应移至 archive/)
+# PID lock file (runtime generated)
+.app.pid
+
+# Backup files
 *.bak
 *.bak.py
 
-# Environment files (Phase 2 Task 9: 仅 .env.example 入库)
+# Environment files (only .env.example goes to repo)
 .env
 .env.local
-
-# OMC / oh-my-opencode state (本地状态不入库)
-.omo/state/
-.omo/notepads/optimization-v19/*.md.tmp
-.omc/state/
-.omc/notepad.md
-.omc/project-memory.json
-.omc/research/
-.omc/plans/
-.omc/logs/
-.omc/sessions/
 
 # Scratch / temp directories
 temp_repo/
 /tmp/
 *.tmp
-*.bak
-*.bak.py
 PLAN.md
 optimization_report.md
-claude-watchdog.ps1
-push_to_github.bat
-新建*.md
 
 # Screenshots and debug images
 *.png
@@ -124,9 +120,22 @@ tmp_*.json
 # Logs directory
 logs/
 
-# OMO run-continuation sessions
-.omo/run-continuation/
-
 # Error/output text files
 *_error*.txt
 *_output*.txt
+
+# AI dev tool leftovers (already in .gitignore but also remove from git tracking)
+.omo/
+
+# Release scripts (not needed for running the program)
+push_v20_release.bat
+push_v20_release.ps1
+push_to_github.bat
+
+# Backtest temp files
+V56_Strategy_Comparison_Report.md
+AUCTION_BACKTEST_REPORT.md
+
+# Claude watchdog
+claude-watchdog.ps1
+claude-watchdog.log

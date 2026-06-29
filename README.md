@@ -20,6 +20,7 @@ Docker 多架构镜像与 GitHub Actions CI/CD。
 - [核心功能](#核心功能)
 - [技术栈](#技术栈)
 - [快速开始](#快速开始)
+- [局域网访问](#局域网访问)
 - [项目结构](#项目结构)
 - [配置说明](#配置说明)
 - [API 概览](#api-概览)
@@ -97,7 +98,6 @@ Docker 多架构镜像与 GitHub Actions CI/CD。
 - **角色权限**（`admin` / `user`，`@role_required` 装饰器）
 - **文件型用户存储**（`data/users.json`，原子写：tmp + rename）
 - **防用户枚举**（未注册用户也走 bcrypt 比对，恒定响应时间）
-- **用户名正则**（3-64 字符，`A-Za-z0-9_.-`）
 
 ### 5. 企业微信推送（v20 新增）
 
@@ -119,8 +119,7 @@ Docker 多架构镜像与 GitHub Actions CI/CD。
 - **`modules/backtest.py`**：纯 Python 等权重 Top-N 再平衡引擎
 - **确定性**（无 I/O、无全局状态、毫秒级运行）
 - **性能指标**：总收益 / 年化收益 / 夏普比率 / 最大回撤 / 胜率 / 换手率
-- **数据源无关**：调用方在边界层注入价格历史（东方财富 / AKShare / 本地
-  CSV 均可）
+- **数据源无关**：调用方在边界层注入价格历史（东方财富 / AKShare / 本地 CSV 均可）
 
 ### 8. 数据导出（v20 新增）
 
@@ -188,7 +187,24 @@ docker compose up -d       # 端口 5559
 curl http://localhost:5559/api/live
 ```
 
-### 方式二：Windows 一键启动
+### 方式二：Windows 后台运行（推荐）
+
+双击 `run.bat` 即可启动。脚本会：
+
+- 自动检测并清理占用端口的旧进程，防止多实例冲突
+- 进程意外退出后 10 秒自动重启，保证服务持续可用
+- 日志输出到 `logs/` 目录
+
+```bat
+git clone https://github.com/kingsmokez/jztz.git
+cd jztz
+pip install -r requirements.txt
+run.bat
+```
+
+> 💡 关闭 CMD 窗口即可停止服务。
+
+### 方式三：Windows 开发调试
 
 ```bat
 git clone https://github.com/kingsmokez/jztz.git
@@ -196,10 +212,11 @@ cd jztz
 start_web.bat
 ```
 
-脚本自动创建虚拟环境、安装依赖、启动 Web 服务。
-浏览器打开 <http://localhost:5559>。
+脚本自动创建虚拟环境、安装依赖、启动 Web 服务（前台运行，关窗口即停）。
 
-### 方式三：Linux / macOS
+### 方式四：Linux / macOS
+
+**开发调试（前台运行）**：
 
 ```bash
 git clone https://github.com/kingsmokez/jztz.git
@@ -208,25 +225,78 @@ chmod +x start_web.sh
 ./start_web.sh
 ```
 
-### 方式四：手动安装
+脚本自动创建虚拟环境、安装依赖、启动 Web 服务（前台运行，关终端即停）。
+
+**后台运行（自动重启）**：
+
+```bash
+git clone https://github.com/kingsmokez/jztz.git
+cd jztz
+pip3 install -r requirements.txt
+cp .env.example .env
+chmod +x run.sh
+nohup ./run.sh >> logs/stdout.log 2>> logs/stderr.log &
+```
+
+> 💡 使用 `nohup` 后台运行，关闭终端不影响服务。停止服务用 `kill $(cat .app.pid)` 或 `pkill -f web_app.py`。
+
+### 方式五：手动安装
 
 ```bash
 python3 -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate    # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env
 python web_app.py
 ```
+
+启动后浏览器打开 <http://localhost:5559> 即可使用。
+
+---
+
+## 局域网访问
+
+系统默认监听 `0.0.0.0:5559`，同一局域网内的设备可直接访问。
+
+### 1. 查看本机 IP
+
+```bash
+# Windows
+ipconfig | findstr "IPv4"
+
+# Linux / macOS
+ifconfig | grep "inet "
+```
+
+### 2. 开放防火墙（Windows）
+
+以**管理员身份**打开 CMD，运行：
+
+```bat
+netsh advfirewall firewall add rule name="jztz_v17" dir=in action=allow protocol=TCP localport=5559
+```
+
+### 3. 局域网访问
+
+其他设备浏览器打开 `http://<你的IP>:5559`，例如：
+
+```
+http://192.168.10.248:5559
+```
+
+> ⚠️ 如果仍然无法访问，请检查 Windows 防火墙是否已放行 5559 端口。
 
 ---
 
 ## 项目结构
 
 ```
-jztz_v17/                              # 仓库根（目录名沿用历史，代码已 v20）
-├── web_app.py                  # Flask 应用工厂 + 入口（308 行）
+jztz_v17/
+├── web_app.py                  # Flask 应用工厂 + 入口（含 PID 锁防多实例）
 ├── start.py                    # Waitress 生产启动（Windows 友好）
-├── start_web.bat / .sh         # 一键启动脚本
+├── run.bat                     # Windows 后台运行（自动重启 + 端口冲突处理）
+├── run.sh                      # Linux/macOS 后台运行（自动重启）
+├── start_web.bat / .sh         # 一键启动脚本（开发调试）
 ├── smart_stock_picker.py       # CLI 入口
 │
 ├── modules/                    # 业务模块（30 个 .py，零 I/O 副作用）
@@ -235,8 +305,8 @@ jztz_v17/                              # 仓库根（目录名沿用历史，代
 │   ├── errors.py               # ApiError 体系
 │   ├── logger.py               # 结构化日志 + request_id
 │   ├── api_response.py         # ok() / error() / paginate()
-│   ├── auth.py                 # bcrypt + Session + CSRF（v20 新增）
-│   ├── data_fetcher.py         # 同步行情获取
+│   ├── auth.py                 # bcrypt + Session + CSRF
+│   ├── data_fetcher.py         # 同步行情获取（含超时重试保护）
 │   ├── async_data_fetcher.py   # 异步并发获取
 │   ├── async_client.py         # 异步 HTTP 客户端
 │   ├── http_client.py          # 同步 HTTP 客户端
@@ -250,12 +320,12 @@ jztz_v17/                              # 仓库根（目录名沿用历史，代
 │   ├── auction_picker.py       # 集合竞价
 │   ├── wp2_picker.py           # 资金流向
 │   ├── strong_stock_picker.py  # 强势股
-│   ├── backtest.py             # 回测引擎（v20 新增）
-│   ├── portfolio.py            # 投资组合（v20 新增）
-│   ├── notifier.py             # WeCom / Console 推送（v20 新增）
-│   ├── exporter.py             # CSV / Excel 导出（v20 新增）
-│   ├── metrics.py              # Prometheus 指标（v20 新增）
-│   ├── scheduler.py            # 后台调度
+│   ├── backtest.py             # 回测引擎
+│   ├── portfolio.py            # 投资组合
+│   ├── notifier.py             # WeCom / Console 推送
+│   ├── exporter.py             # CSV / Excel 导出
+│   ├── metrics.py              # Prometheus 指标
+│   ├── scheduler.py            # 后台调度（daemon 线程 + 独立任务线程）
 │   ├── ai_analyzer.py          # AI 辅助分析（预留接口）
 │   ├── external_api.py         # 外部 API 集成
 │   └── news.py                 # 资讯抓取
@@ -267,50 +337,31 @@ jztz_v17/                              # 仓库根（目录名沿用历史，代
 │   ├── wp2.py                  # /wp2 资金流向
 │   ├── strong.py               # /strong 强势股
 │   ├── ai.py                   # /ai AI 分析页
-│   ├── auth.py                 # /api/auth 登录 / 登出 / 当前用户（v20 新增）
-│   ├── portfolio.py            # /api/portfolio 持仓 REST（v20 新增）
-│   ├── backtest.py             # /api/backtest 回测（v20 新增）
-│   ├── export.py               # /api/export 导出（v20 新增）
+│   ├── auth.py                 # /api/auth 登录 / 登出 / 当前用户
+│   ├── portfolio.py            # /api/portfolio 持仓 REST
+│   ├── backtest.py             # /api/backtest 回测
+│   ├── export.py               # /api/export 导出
 │   ├── health.py               # /api/live · /api/ready · /api/health
 │   ├── metrics.py              # /metrics Prometheus
 │   └── docs.py                 # /api/docs Swagger UI
 │
 ├── templates/                  # Jinja2 模板（10 个 HTML）
-│   ├── index.html              # 主页：全市场选股
-│   ├── daily_pick.html         # 每日推荐
-│   ├── auction_pick.html       # 集合竞价
-│   ├── wp2_pick.html           # 资金流向
-│   ├── strong_pick.html        # 强势股
-│   ├── auction_compare.html    # 竞价对比
-│   ├── cb_arbitrage.html       # 可转债套利
-│   ├── dexter_ai.html          # Dexter AI
-│   ├── backtest_report.html    # 回测报告
-│   └── login.html              # 登录页（v20 新增）
-│
 ├── static/                     # 静态资源
-├── tests/                      # 38 个测试文件（458 用例）
-│   ├── e2e/                    # Playwright E2E（5 个）
-│   └── test_*.py               # 单元 / 集成测试（33 个）
-│
-├── docs/                       # 文档
-│   ├── architecture.md         # 架构图（4 张 Mermaid）
-│   ├── api.md                  # API 人类可读参考
-│   ├── openapi.json            # OpenAPI 3.0.3 规范
-│   └── plans/                  # 项目计划与改进方案
-│
-├── data/                       # 运行时数据（不入库）
+├── data/                       # 运行时数据（缓存、用户、持仓，不入库）
 ├── logs/                       # 应用日志（不入库）
-├── wp2/                        # WP2 辅助模块（遗留）
+├── tests/                      # 38 个测试文件（458 用例）
+├── docs/                       # 文档
+├── scripts/                    # 辅助脚本
+├── wp2/                        # WP2 辅助模块
 │
 ├── Dockerfile                  # 多阶段构建（非 root 用户，HEALTHCHECK）
 ├── docker-compose.yml          # 单机编排
-├── .github/workflows/ci.yml    # CI：lint + test (3×py) + e2e + build + release
 ├── .env.example                # 环境变量模板
-├── requirements.txt            # 生产依赖（11 个）
+├── requirements.txt            # 生产依赖
 ├── requirements-dev.txt        # 开发依赖
 ├── pyproject.toml              # 项目元数据 + 工具配置
-├── pytest.ini                  # pytest 配置（已合并到 pyproject）
-├── playwright.config.py        # Playwright E2E 配置
+├── pytest.ini                  # pytest 配置
+├── install_service.bat         # Windows 计划任务安装
 │
 ├── README.md                   # 本文件
 ├── CHANGELOG.md                # 版本变更日志
@@ -318,9 +369,6 @@ jztz_v17/                              # 仓库根（目录名沿用历史，代
 ├── CONTRIBUTING.md             # 贡献指南
 └── DEPLOY.md                   # 部署指南（5 种方式 + Nginx + TLS + 监控 + 回滚）
 ```
-
-**代码规模**：139 个跟踪文件，其中 Python 源码 60+ 个，HTML 模板 10 个，
-测试 38 个。
 
 ---
 
@@ -402,7 +450,7 @@ jztz_v17/                              # 仓库根（目录名沿用历史，代
 | 可转债套利 | `/cb_arbitrage` | 可转债折溢价套利 |
 | 回测报告 | `/backtest` | 自定义参数运行回测 |
 | 持仓管理 | `/portfolio` | 持仓录入、盈亏跟踪 |
-| 登录 | `/login` | 用户登录（v20 新增）|
+| 登录 | `/login` | 用户登录 |
 
 所有页面响应式布局，桌面 / 平板 / 手机自适应。
 
@@ -418,7 +466,7 @@ jztz_v17/                              # 仓库根（目录名沿用历史，代
 | **动量因子** | 12 % | 近期涨跌幅、相对强度 | 趋势跟踪（带反转保护）|
 | **情绪因子** | 33 % | 市场热度、资金流向 | 资金净流入 + 热度指标 |
 
-**行业 PE 动态阈值**（v17 起，行业 PE 区间由 189 只全样本回测校准）：
+**行业 PE 动态阈值**（行业 PE 区间由 189 只全样本回测校准）：
 
 | 行业 | PE 上限 | PE 下限 | 说明 |
 |---|---|---|---|
@@ -438,8 +486,7 @@ jztz_v17/                              # 仓库根（目录名沿用历史，代
 | 胜率 | 80 % |
 | 交易次数 | 15 |
 
-回测引擎位于 `modules/backtest.py`，纯 Python 实现，确定性毫秒级运行，
-可独立调用。
+回测引擎位于 `modules/backtest.py`，纯 Python 实现，确定性毫秒级运行，可独立调用。
 
 ---
 
@@ -479,15 +526,8 @@ pytest -k "auth"                # 关键字过滤
 |---|---|
 | 总用例 | 458 passed + 6 skipped + 0 failed |
 | 模块覆盖率 | 87.5 %（v19 时约 60 %）|
-| 高覆盖模块 | `backtest.py` 94.3 % · `notifier.py` 96.6 % · `metrics.py` 89.8 % |
-| 中等覆盖 | `portfolio.py` 79.7 % · `exporter.py` 79.2 % |
 | E2E（Playwright） | 5 个关键用户旅程 |
 | 跨版本 | CI 矩阵验证 Python 3.10 / 3.11 / 3.12 |
-
-> 已知局限：Windows 下 `bcrypt` 5.x（Rust/PyO3）在 coverage 插桩下无
-> 法重初始化，因此 `modules/auth.py` 与 `routes/auth.py` 在
-> `pyproject.toml` 中从覆盖率统计排除，conftest 预导入让其他模块照常
-> 测覆盖。**不是代码问题，是环境特性。**
 
 ### 项目结构约定
 
@@ -511,6 +551,26 @@ pytest -k "auth"                # 关键字过滤
 | **Gunicorn** | Linux 生产（gthread worker，兼容 SSE）| `gunicorn --workers 2 --threads 4 --worker-class gthread web_app:app` |
 | **Waitress** | Windows 生产 | `python start.py` |
 | **systemd** | Linux 长驻服务 | 提供 unit file（见 `DEPLOY.md` §5）|
+
+### Windows 后台运行
+
+`run.bat` 提供开箱即用的 Windows 后台运行方案：
+
+- ✅ **自动重启**：进程退出后 10 秒自动重启
+- ✅ **端口冲突处理**：自动检测并清理占用端口的旧进程，防止多实例冲突
+- ✅ **PID 锁**：`web_app.py` 内置 PID 文件锁，确保同一时间只有一个实例运行
+- ✅ **日志持久化**：运行日志写入 `logs/` 目录
+
+### Linux 后台运行
+
+`run.sh` 提供同样的自动重启功能：
+
+```bash
+chmod +x run.sh
+nohup ./run.sh >> logs/stdout.log 2>> logs/stderr.log &
+```
+
+也可使用 systemd 实现更完善的服务管理（见 [`DEPLOY.md`](DEPLOY.md) §5）。
 
 ### 反向代理（Nginx，可选）
 
@@ -550,6 +610,7 @@ pytest -k "auth"                # 关键字过滤
 | **HEALTHCHECK** | 30s 间隔，3 次失败标记 unhealthy |
 | **依赖审计** | `requirements.txt` 全部固定精确版本（`==`）|
 | **Secret 管理** | 所有密钥通过环境变量注入，`.env` 已 gitignore |
+| **多实例保护** | PID 文件锁 + 端口冲突检测，防止重复启动导致资源竞争 |
 
 ---
 
@@ -575,7 +636,7 @@ pytest -k "auth"                # 关键字过滤
 |---|---|
 | [`README.md`](README.md) | 本文件（项目总览）|
 | [`CHANGELOG.md`](CHANGELOG.md) | 版本变更日志（Keep a Changelog 格式）|
-| [`FILE_DOCUMENTATION.md`](FILE_DOCUMENTATION.md) | 每个文件 / 模块的详细功能说明（557 行）|
+| [`FILE_DOCUMENTATION.md`](FILE_DOCUMENTATION.md) | 每个文件 / 模块的详细功能说明|
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | 贡献指南（开发环境、提 PR 流程、commit 规范）|
 | [`DEPLOY.md`](DEPLOY.md) | 部署指南（5 种方式 + Nginx + 监控 + 回滚 + 故障排查）|
 | [`docs/architecture.md`](docs/architecture.md) | 4 张 Mermaid 架构图（系统总览 / 数据流 / 模块依赖 / 部署拓扑）|

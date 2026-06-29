@@ -16,13 +16,34 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Optional
 
-import akshare as ak
-
 from modules.http_client import EM_HEADERS, session
 from modules.logger import log
-from modules.data_fetcher import get_stock_industry, preload_industry_cache
+from modules.data_fetcher import get_stock_industry, preload_industry_cache, get_financial_data, _get_session
 from modules.market_env import get_market_env
-from modules.scoring import calculate_buy_sell, multi_factor_evaluate
+from modules.scoring import calculate_buy_sell, multi_factor_evaluate, industry_concentration_limit
+
+
+def _get_stock_list_api(timeout: int = 30) -> Optional[list[str]]:
+    """获取A股代码列表 — 使用东方财富datacenter-web API"""
+    try:
+        from modules.data_fetcher import _get_all_stock_codes
+        codes = _get_all_stock_codes()
+        if codes:
+            log.info(f"股票列表API获取完成: {len(codes)} 只")
+            return codes
+    except Exception as e:
+        log.warning(f"股票列表API获取失败: {e}")
+    try:
+        from modules.data_fetcher import get_preset_financials
+        preset = get_preset_financials()
+        if preset:
+            codes = [c for c in preset.keys() if c[0] not in ('2','4','8','9') and len(c) == 6]
+            log.info(f"离线库降级获取 {len(codes)} 只")
+            return codes
+    except Exception:
+        pass
+    return None
+
 
 # ---------------------------------------------------------------------------
 # 模块级缓存
@@ -68,9 +89,32 @@ def run_wp2_picker(
             return []
         top_n = env.adjusted_top_n(top_n)
         log.info(f"WP2选股: 市场环境 status={env.status}, trend={env.trend}, top_n={top_n}")
+
+        # V2.1: 强下跌市跳过尾盘选股（历史回测显示熊市尾盘策略亏损严重）
+        if env.trend in ("bear", "strong_down") and env.status in ("strong_down", "bear"):
+            log.warning(f"WP2选股 V2.1: 市场{env.trend}/{env.status}，暂停尾盘选股")
+            _save_empty_result(datetime.now(), {}, filter_log)
+            return []
     except Exception as e:
         log.warning(f"WP2选股: 市场环境检测失败: {e}，使用默认参数")
         env = None
+
+    # V2.3: 大盘过热暂停 — 沪深300近5日涨幅≥4%时暂停
+    try:
+        idx_kd = kline_fetcher.get_kline_raw("sh000300", 10)
+        if idx_kd and idx_kd.get("data",{}).get("klines"):
+            klines = idx_kd["data"]["klines"]
+            if len(klines) >= 5:
+                closes = [float(k.split(",")[2]) for k in klines[-5:] if len(k.split(",")) >= 3]
+                if len(closes) == 5:
+                    idx_5d_pct = (closes[-1] - closes[0]) / closes[0] * 100
+                    if idx_5d_pct >= 4:
+                        log.warning(f"WP2选股 V2.3: 沪深300近5日涨幅{idx_5d_pct:.1f}%≥4%，过热暂停")
+                        with _WP2_PICK_LOCK:
+                            _WP2_PICK_DATA["running"] = False
+                        return []
+    except Exception:
+        pass
 
     with _WP2_PICK_LOCK:
         _WP2_PICK_DATA["running"] = True
@@ -84,23 +128,18 @@ def run_wp2_picker(
         # 1. 获取大盘信息
         market_info = _get_market_info()
 
-        # 2. 获取股票代码列表
-        try:
-            code_df = ak.stock_info_a_code_name()
-        except Exception as exc:
-            log.warning(f"akshare 获取失败: {exc}")
+        # 1b. 获取板块强度排名
+        top_sectors = _get_top_sectors(top_n=15)
+
+        # 2. 获取股票代码列表（使用datacenter-web API替代akshare）
+        code_list = _get_stock_list_api(timeout=30)
+        if not code_list:
+            log.warning("获取股票列表失败")
             _save_empty_result(now, market_info, filter_log)
             return []
 
-        log.info(f"共 {len(code_df)} 只股票")
-
-        # 3. 构建新浪代码
-        sina_codes: list[str] = []
-        for _, row in code_df.iterrows():
-            code = str(row["code"])
-            if code.startswith("688") or code.startswith("8") or code.startswith("4"):
-                continue
-            sina_codes.append(f"sh{code}" if code.startswith("6") else f"sz{code}")
+        log.info(f"共 {len(code_list)} 只股票")
+        sina_codes = [f"sh{c}" if c.startswith("6") else f"sz{c}" for c in code_list]
 
         # 4. 批量获取行情
         all_data: dict[str, dict] = {}
@@ -147,33 +186,53 @@ def run_wp2_picker(
 
         s1.sort(key=lambda x: float(x.get("f6", 0)), reverse=True)
 
+        # ROE基本面预过滤（排除亏损股）
+        s1_codes = [str(s.get("f12", "")) for s in s1 if s.get("f12")]
+        fin_data = get_financial_data(s1_codes) if s1_codes else {}
+        s1_filtered = []
+        for s in s1:
+            code = str(s.get("f12", ""))
+            fin = fin_data.get(code)
+            roe = fin.roe if fin else 0
+            if roe >= 0:
+                s1_filtered.append(s)
+        if len(s1_filtered) < len(s1):
+            log.info(f"ROE过滤: {len(s1)} -> {len(s1_filtered)} 只（排除{len(s1)-len(s1_filtered)}只亏损股）")
+        s1 = s1_filtered
+        if not s1:
+            _save_empty_result(now, market_info, filter_log)
+            return []
+
         # 7. 获取 K 线数据
         log.info(f"获取 {len(s1)} 只K线...")
         kline_data = _fetch_klines(s1)
 
         # 8. 多层技术过滤 + 评分
         results = _technical_filter_and_score(
-            s1, kline_data, vol_mul, break_n, body_r, rsi_lo, rsi_hi, min_score, filter_log
+            s1, kline_data, vol_mul, break_n, body_r, rsi_lo, rsi_hi, min_score, filter_log, top_sectors
         )
 
         results.sort(key=lambda x: x["score"], reverse=True)
         final = results[:top_n]
 
-        # 预加载行业缓存
-        preload_industry_cache([s["code"] for s in final if s.get("code")])
-        # 添加行业信息
-        if final:
-            from concurrent.futures import ThreadPoolExecutor
-            def _fetch_industry(stock):
+        # 预加载行业缓存 + 行业分散
+        preload_industry_cache([s["code"] for s in results if s.get("code")])
+        from modules.data_fetcher import _industry_cache as _ic
+        for s in results:
+            code = s.get("code", "")
+            cached = _ic.get(code)
+            if isinstance(cached, dict):
+                s["industry"] = cached.get("industry", "未知")
+                s["sector"] = cached.get("sector_type", "default")
+        # 行业分散：同行业最多3只
+        final = industry_concentration_limit(results, max_per_industry=3, min_count=top_n)[:top_n]
+        for s in final:
+            if not s.get("industry"):
                 try:
-                    info = get_stock_industry(stock["code"])
-                    stock["industry"] = info.get("industry", "未知")
-                    stock["sector"] = info.get("sector_type", "default")
+                    info = get_stock_industry(s["code"])
+                    s["industry"] = info.get("industry", "未知")
                 except Exception:
-                    stock["industry"] = "未知"
-                    stock["sector"] = "default"
-            with ThreadPoolExecutor(max_workers=10) as executor:
-                list(executor.map(_fetch_industry, final))
+                    pass
 
         # Add buy/sell points and V5 evaluation
         for stock in final:
@@ -192,7 +251,6 @@ def run_wp2_picker(
                 }
                 # Fetch financial data for proper V5 evaluation
                 try:
-                    from modules.data_fetcher import get_financial_data
                     fin_map = get_financial_data([code])
                     fin = fin_map.get(code)
                     if fin:
@@ -360,6 +418,31 @@ def _fetch_klines(s1: list[dict]) -> dict[str, dict]:
     return kline_data
 
 
+def _get_top_sectors(top_n: int = 15) -> dict[str, float]:
+    """获取涨幅前N的行业板块，用于板块强度加分"""
+    try:
+        from modules.data_fetcher import fetch_sina_sectors
+        sectors = fetch_sina_sectors("industry")
+        if sectors:
+            top = sorted(sectors, key=lambda x: x.get("change_pct", 0), reverse=True)[:top_n]
+            return {s["name"]: s.get("change_pct", 0) for s in top}
+    except Exception as e:
+        log.debug(f"获取板块排名失败: {e}")
+    return {}
+
+
+def _check_limit_break(kl: list[dict], pct: float) -> bool:
+    """检查是否炸板：今日曾涨停(zf>=9.5%)但收盘未封住"""
+    if not kl or len(kl) < 1:
+        return False
+    last = kl[-1]
+    o, c, h = last["o"], last["c"], last["h"]
+    if o <= 0:
+        return False
+    limit_price = o * 1.095
+    return h >= limit_price and c < limit_price * 0.995
+
+
 def _technical_filter_and_score(
     s1: list[dict],
     kline_data: dict[str, dict],
@@ -370,22 +453,27 @@ def _technical_filter_and_score(
     rsi_hi: float,
     min_score: int,
     filter_log: list[dict],
+    top_sectors: dict | None = None,
 ) -> list[dict]:
-    """新策略评分体系 — 基于回测验证的6大因子
+    """新策略评分体系 V2.3 — 基于回测验证的11大因子
 
-    回测30天实盘数据验证: 新策略独有选股胜率50%、平均收益0.93%
     核心逻辑: 尾盘收盘位置好+温和上涨(2-5%)的股票次日表现最好
 
-    6大因子:
-    1. 收盘位置 (0~40分): 光头阳线=最强尾盘信号
+    11大因子:
+    1. 收盘位置 (0~25分): 光头阳线=尾盘抢筹信号（V2.1下调权重防评分倒挂）
     2. 连续放量 (-5~+20分): 3日量递增+放量=资金持续进场
-    3. 均线斜率加速 (-10~+15分): MA5加速上扬=趋势加强
+    3. 均线斜率加速 (-10~+20分): MA5加速上扬=趋势加强
     4. 波动率收缩突破 (-5~+15分): ATR收窄后突破=蓄势待发
     5. 量价配合 (-10~+15分): 放量涨+缩量跌=健康走势
-    6. 风险排除 (-15~-5分): 涨幅过大/连板/跳空=次日回调风险
+    6. 风险排除 (-40~-5分): 涨幅过大/连板/跳空=次日回调风险
+    7. 板块强度 (0~15分): 个股所在板块涨幅排名靠前=溢价效应
+    8. 炸板惩罚 (-20分): 今日曾涨停但未封住=次日低开概率高
+    9. 尾盘30分钟综合 (0~30分): 拉升斜率+尾盘量占比+竞价动量
+    10. 尾盘相对强度 (-10~15分): 个股尾盘跑赢沪深300=相对强势
+    11. 动量持续性 (-10~20分): 近5日涨幅3-12%且持续上涨=动量可持续
     """
     results: list[dict] = []
-    stat_close = stat_vol = stat_ma = stat_atr = stat_vp = 0
+    stat_close = stat_vol = stat_ma = stat_atr = stat_vp = stat_sector = 0
 
     for s in s1:
         code = str(s.get("f12", ""))
@@ -438,7 +526,7 @@ def _technical_filter_and_score(
         score = 0.0
 
         # =========================================================================
-        # 因子1: 收盘位置 (0~40分) — 尾盘策略最核心的因子，权重最大
+        # 因子1: 收盘位置 (0~25分) — V2.1下调权重(原40)，高分终点位高被过度追涨
         # 注意: 涨停板的光头阳线是被动形成的，不是主动尾盘抢筹，需降分
         # =========================================================================
         day_range = hi[t] - lo[t]
@@ -452,19 +540,19 @@ def _technical_filter_and_score(
             is_limit_up = pct >= 9.5
 
             if close_position > 0.95 and shadow_ratio < 0.03:
-                close_pos_score = 25 if is_limit_up else 40  # 光头阳线
+                close_pos_score = 15 if is_limit_up else 25  # V2.1: 40→25
             elif close_position > 0.90 and shadow_ratio < 0.06:
-                close_pos_score = 20 if is_limit_up else 35  # 几乎光头
+                close_pos_score = 12 if is_limit_up else 22  # V2.1: 35→22
             elif close_position > 0.85 and shadow_ratio < 0.10:
-                close_pos_score = 18 if is_limit_up else 30
+                close_pos_score = 10 if is_limit_up else 18  # V2.1: 30→18
             elif close_position > 0.70 and shadow_ratio < 0.20:
-                close_pos_score = 15 if is_limit_up else 22
+                close_pos_score = 8 if is_limit_up else 14   # V2.1: 22→14
             elif close_position > 0.50:
-                close_pos_score = 10 if is_limit_up else 12
+                close_pos_score = 6 if is_limit_up else 8    # V2.1: 12→8
             elif close_position > 0.30:
-                close_pos_score = 5
+                close_pos_score = 3                          # V2.1: 5→3
             else:
-                close_pos_score = -5
+                close_pos_score = -8                         # V2.1: -5→-8
 
             # 上影线惩罚
             if shadow_ratio > 0.50:
@@ -513,7 +601,7 @@ def _technical_filter_and_score(
             stat_vol += 1
 
         # =========================================================================
-        # 因子3: 均线斜率加速 (-10~+15分)
+        # 因子3: 均线斜率加速 (-10~+20分) — V2.1上调权重(原15)，趋势因子回测表现稳定
         # =========================================================================
         ma_score = 0
         if m5 and m10 and m20 and t >= 5:
@@ -529,19 +617,18 @@ def _technical_filter_and_score(
                 slope_now = ma5_vals[-1] - ma5_vals[-2]
                 slope_prev = ma5_vals[-2] - ma5_vals[-3]
                 if slope_now > 0 and slope_prev > 0:
-                    # 斜率加速
                     if slope_now > slope_prev * 1.5:
-                        ma_score = 15  # 强加速
+                        ma_score = 20  # V2.1: 15→20 强加速
                     elif slope_now > slope_prev:
-                        ma_score = 10  # 温和加速
+                        ma_score = 14  # V2.1: 10→14 温和加速
                     else:
-                        ma_score = 5   # 斜率放缓
+                        ma_score = 8   # V2.1: 5→8 斜率放缓
                 elif slope_now > 0 and slope_prev <= 0:
-                    ma_score = 12  # 拐头向上
+                    ma_score = 15  # V2.1: 12→15 拐头向上
                 elif slope_now <= 0 and slope_prev > 0:
-                    ma_score = -10  # 拐头向下
+                    ma_score = -15  # V2.1: -10→-15 拐头向下
                 elif slope_now <= 0:
-                    ma_score = -5   # 持续下行
+                    ma_score = -8   # V2.1: -5→-8 持续下行
 
             # MA对齐加分
             if m5 > m10 > m20:
@@ -649,14 +736,154 @@ def _technical_filter_and_score(
                 risk_score -= 5
 
         # 涨幅过大惩罚（回测验证: 涨幅>7%次日回调概率高）
+        # V2.1: 全面加重惩罚力度
         if pct > 9.5:
-            risk_score -= 30  # 接近/达到涨停，次日大概率低开，大幅惩罚
+            risk_score -= 40  # V2.1: 30→40 接近/达到涨停，次日大概率低开
         elif pct > 8:
-            risk_score -= 15  # 涨幅过大
+            risk_score -= 20  # V2.1: 15→20 涨幅过大
         elif pct > 7:
-            risk_score -= 8   # 涨幅偏大
+            risk_score -= 12  # V2.1: 8→12 涨幅偏大
+        elif pct > 5:
+            risk_score -= 5   # V2.1新增: 5-7%也扣分 涨幅较大
 
         score += risk_score
+
+        # =========================================================================
+        # 因子7: 板块强度加分 (0~15分)
+        # =========================================================================
+        sector_bonus = 0
+        if top_sectors:
+            try:
+                from modules.data_fetcher import _industry_cache as _ic
+                cached = _ic.get(code)
+                if isinstance(cached, dict):
+                    stock_industry = cached.get("industry", "")
+                    for sec_name, sec_chg in top_sectors.items():
+                        if stock_industry and (stock_industry in sec_name or sec_name in stock_industry):
+                            if sec_chg >= 3:
+                                sector_bonus = 15
+                            elif sec_chg >= 2:
+                                sector_bonus = 10
+                            elif sec_chg >= 1:
+                                sector_bonus = 5
+                            break
+            except Exception:
+                pass
+        score += sector_bonus
+
+        # =========================================================================
+        # 因子11: 动量持续性 (-10~15分) — V2.3新增
+        # 近5日累计涨幅适中(3-12%)且持续放量=动量可持续
+        # 近5日涨幅过大(>15%)=透支，涨幅为负=弱势
+        # =========================================================================
+        mom_score = 0
+        if t >= 5:
+            chg_5d = (cl[t] - cl[t-5]) / cl[t-5] * 100 if cl[t-5] > 0 else 0
+            if 3 <= chg_5d <= 12:
+                mom_score = 15  # 温和上涨，动量可持续
+                # 如果5日每一天都在涨，额外加分
+                up_days_5d = sum(1 for i in range(t-4, t+1) if cl[i] > cl[i-1])
+                if up_days_5d >= 4:
+                    mom_score += 5  # 连续上涨=强动量
+            elif 12 < chg_5d <= 20:
+                mom_score = 5   # 涨幅偏大，风险增加
+            elif chg_5d > 20:
+                mom_score = -10 # 涨幅过大，透支
+            elif chg_5d < -5:
+                mom_score = -8  # 近5日下跌=弱势
+        score += mom_score
+
+        # =========================================================================
+        # 因子8: 炸板惩罚 (-20分)
+        # =========================================================================
+        if _check_limit_break(kl, pct):
+            score -= 20
+
+        # =========================================================================
+        # 因子9: 尾盘30分钟综合评分 (0~30分) — V2.2 增强版
+        # 包含3个子信号(来自同一份5分钟K线数据):
+        #   9a. 尾盘拉升斜率 (0~12分): 最后30分钟价格斜率
+        #   9b. 尾盘成交量占比 (0~10分): 尾盘量占全天比例
+        #   9c. 尾盘竞价动量 (0~8分): 最后5分钟的价量特征
+        # =========================================================================
+        tail_bonus = 0
+        try:
+            from modules.kline_fetcher import kline_fetcher
+            mk = kline_fetcher.get_minute_kline(code, minute=5, count=18)
+            if mk and len(mk) >= 6:
+                tail_closes = [k["close"] for k in mk[-6:]]
+                tail_vols = [k["volume"] for k in mk[-6:]]
+                
+                # 9a: 尾盘拉升斜率 (0~12分)
+                if tail_closes[-1] > tail_closes[0]:
+                    slope = (tail_closes[-1] - tail_closes[0]) / tail_closes[0]
+                    if slope > 0.015: tail_bonus += 12
+                    elif slope > 0.008: tail_bonus += 8
+                    elif slope > 0.003: tail_bonus += 4
+                
+                # 9b: 尾盘成交量占比 (0~10分) — 尾盘量能占全天比例
+                # 也需要获取日K线来算全天成交量
+                try:
+                    day_k = kline_fetcher.get_kline_raw(
+                        f"sh{code}" if code.startswith("6") else f"sz{code}", 2
+                    )
+                    if day_k and day_k.get("data",{}).get("klines"):
+                        last_day = day_k["data"]["klines"][-1]
+                        parts = last_day.split(",")
+                        if len(parts) >= 6:
+                            day_vol = float(parts[5])  # 全天成交量(手)
+                            tail_vol_sum = sum(tail_vols)  # 尾盘30分钟成交量
+                            if day_vol > 0:
+                                vol_ratio = tail_vol_sum / day_vol
+                                if vol_ratio > 0.30: tail_bonus += 10  # 尾盘占比>30% = 尾盘异动
+                                elif vol_ratio > 0.22: tail_bonus += 7
+                                elif vol_ratio > 0.15: tail_bonus += 4
+                                elif vol_ratio < 0.05: tail_bonus -= 5  # 尾盘极度缩量=异常
+                except Exception:
+                    pass
+                
+                # 9c: 尾盘竞价动量 (0~8分) — 最后5分钟放量+收高
+                last_5min = mk[-1] if mk else None
+                prev_5min = mk[-2] if len(mk) >= 2 else None
+                if last_5min and prev_5min:
+                    # 最后5分钟涨幅
+                    if prev_5min["close"] > 0:
+                        last_rise = (last_5min["close"] - prev_5min["close"]) / prev_5min["close"]
+                        if last_rise > 0.003:
+                            tail_bonus += 4  # 最后5分钟还在涨
+                    # 最后5分钟放量
+                    if prev_5min["volume"] > 0 and last_5min["volume"] > prev_5min["volume"] * 1.3:
+                        tail_bonus += 4  # 最后5分钟明显放量
+        except Exception:
+            pass
+        score += tail_bonus
+
+        # =========================================================================
+        # 因子10: 尾盘相对强度 (0~15分) — V2.2新增
+        # 股票尾盘走势 vs 沪深300尾盘走势，跑赢指数=相对强势
+        # =========================================================================
+        rel_strength = 0
+        try:
+            # 获取沪深300的5分钟K线
+            idx_mk = kline_fetcher.get_minute_kline("000300", minute=5, count=18)
+            if idx_mk and len(idx_mk) >= 6 and mk and len(mk) >= 6:
+                idx_tail_close = idx_mk[-1]["close"]
+                idx_tail_open = idx_mk[-6]["close"]
+                if idx_tail_open > 0:
+                    idx_ret = (idx_tail_close - idx_tail_open) / idx_tail_open
+                    stock_ret = (mk[-1]["close"] - mk[-6]["close"]) / mk[-6]["close"]
+                    excess_ret = stock_ret - idx_ret  # 超额收益
+                    if excess_ret > 0.01:
+                        rel_strength = 15  # 尾盘跑赢指数1%以上
+                    elif excess_ret > 0.005:
+                        rel_strength = 10
+                    elif excess_ret > 0.002:
+                        rel_strength = 5
+                    elif excess_ret < -0.01:
+                        rel_strength = -10  # 尾盘跑输指数1%以上
+        except Exception:
+            pass
+        score += rel_strength
 
         # 最低分数门槛
         if score < min_score:

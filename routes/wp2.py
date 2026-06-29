@@ -194,14 +194,31 @@ def api_wp2_pick_run():
 
 @wp2_bp.route("/api/wp2_pick_execute")
 def api_wp2_pick_execute():
-    try:
-        _execute_wp2_pick()
-        with WP2_PICK_LOCK:
-            stocks = WP2_PICK_DATA.get('stocks', [])
-        return jsonify({"success": True, "stocks": stocks})
-    except Exception as e:
-        log.error(f"wp2选股执行失败: {e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e), "stocks": []})
+    """同步执行WP2选股 — 在后台线程中运行，避免阻塞请求线程"""
+    import threading
+    result_available = threading.Event()
+    result_holder = {"success": False, "stocks": [], "error": None}
+
+    def run_and_capture():
+        try:
+            _execute_wp2_pick()
+            with WP2_PICK_LOCK:
+                result_holder["stocks"] = WP2_PICK_DATA.get('stocks', [])
+            result_holder["success"] = True
+        except Exception as e:
+            log.error(f"wp2选股执行失败: {e}", exc_info=True)
+            result_holder["error"] = str(e)
+        finally:
+            result_available.set()
+
+    t = threading.Thread(target=run_and_capture, daemon=True)
+    t.start()
+    # 最多等待60秒，超时返回进行中状态
+    if result_available.wait(timeout=60):
+        if result_holder["success"]:
+            return jsonify({"success": True, "stocks": result_holder["stocks"]})
+        return jsonify({"success": False, "error": result_holder["error"], "stocks": []})
+    return jsonify({"success": False, "error": "选股执行超时(60s)，请稍后刷新页面查看结果", "stocks": []})
 
 
 # === WP2选股核心逻辑 — 代理到 modules.technical.calc_* ===
@@ -445,11 +462,21 @@ def _execute_wp2_pick(min_cap=30, max_cap=500, min_amt=3, vol_mul=1.5, break_n=2
             pass
 
         log.info("获取股票代码列表...")
+        # 带超时保护的 akshare 调用，防止上游API挂起导致线程永久阻塞
+        code_df = None
         try:
             import akshare as ak
-            code_df = ak.stock_info_a_code_name()
+            from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(ak.stock_info_a_code_name)
+                try:
+                    code_df = future.result(timeout=30)
+                except FuturesTimeout:
+                    log.error("akshare stock_info_a_code_name 超时(30s)")
+                    future.cancel()
         except Exception as e:
             log.error(f"akshare获取失败: {e}")
+        if code_df is None or (hasattr(code_df, 'empty') and code_df.empty):
             with WP2_PICK_LOCK:
                 WP2_PICK_DATA['stocks'] = []
                 WP2_PICK_DATA['pick_time'] = now.strftime('%H:%M:%S')

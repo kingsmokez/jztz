@@ -32,8 +32,17 @@ def get_session() -> requests.Session:
             "Accept": "*/*",
             "Referer": "https://gu.qq.com/",
         })
-        retry_strategy = Retry(total=2, backoff_factor=1)
-        adapter = HTTPAdapter(max_retries=retry_strategy)
+        retry_strategy = Retry(
+            total=3,              # 最多重试3次（原2次）
+            backoff_factor=1,     # 1s, 2s, 4s 递增延迟
+            status_forcelist=[502, 503, 504],  # 这些状态码触发重试
+        )
+        # 增大连接池：支持4900+股票并发获取
+        adapter = HTTPAdapter(
+            max_retries=retry_strategy,
+            pool_connections=20,  # 连接池大小（原默认10）
+            pool_maxsize=50,      # 最大连接数（原默认10）
+        )
         _session.mount("https://", adapter)
         _session.mount("http://", adapter)
     return _session

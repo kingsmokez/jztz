@@ -25,8 +25,14 @@ def _fetch_industry_for_results(results: list[dict]) -> None:
             stock["industry"] = "未知"
             stock["sector"] = "default"
 
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        list(executor.map(_fetch, results))
+    try:
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            list(executor.map(_fetch, results))
+    except RuntimeError as e:
+        if "interpreter shutdown" in str(e).lower() or "cannot schedule" in str(e).lower():
+            log.warning("行业信息获取因解释器关闭而中断")
+            return
+        raise
 
 
 def run_picker(top_n: int = 80) -> list[dict]:
@@ -99,19 +105,25 @@ def run_picker(top_n: int = 80) -> list[dict]:
         except Exception:
             return (code, None)
 
-    with ThreadPoolExecutor(max_workers=15) as executor:
-        futures = [executor.submit(calc_tech, c) for c in codes]
-        completed = 0
-        for future in as_completed(futures):
-            try:
-                code, tech = future.result(timeout=20)
-                if tech:
-                    tech_cache[code] = tech
-                completed += 1
-                if completed % 200 == 0:
-                    log.info(f"  技术指标计算进度: {completed}/{len(codes)}")
-            except Exception:
-                pass
+    try:
+        with ThreadPoolExecutor(max_workers=15) as executor:
+            futures = [executor.submit(calc_tech, c) for c in codes]
+            completed = 0
+            for future in as_completed(futures):
+                try:
+                    code, tech = future.result(timeout=20)
+                    if tech:
+                        tech_cache[code] = tech
+                    completed += 1
+                    if completed % 200 == 0:
+                        log.info(f"  技术指标计算进度: {completed}/{len(codes)}")
+                except Exception:
+                    pass
+    except RuntimeError as e:
+        if "interpreter shutdown" in str(e).lower() or "cannot schedule" in str(e).lower():
+            log.warning("每日选股: 技术指标计算因解释器关闭而中断")
+            return []
+        raise
 
     log.info(f"每日选股: 技术指标计算完成，缓存 {len(tech_cache)} 只")
 
@@ -199,15 +211,21 @@ def run_picker(top_n: int = 80) -> list[dict]:
             log.debug(f"每日评分失败: {code}, {e}")
             return None
 
-    with ThreadPoolExecutor(max_workers=15) as executor:
-        futures = {executor.submit(score_one, c): c for c in candidates}
-        for future in as_completed(futures):
-            try:
-                result = future.result(timeout=30)
-                if result:
-                    results.append(result)
-            except Exception:
-                pass
+    try:
+        with ThreadPoolExecutor(max_workers=15) as executor:
+            futures = {executor.submit(score_one, c): c for c in candidates}
+            for future in as_completed(futures):
+                try:
+                    result = future.result(timeout=30)
+                    if result:
+                        results.append(result)
+                except Exception:
+                    pass
+    except RuntimeError as e:
+        if "interpreter shutdown" in str(e).lower() or "cannot schedule" in str(e).lower():
+            log.warning("每日选股: 评分计算因解释器关闭而中断，返回已有结果")
+            return results
+        raise
 
     results.sort(key=lambda x: x.get("v5_score", x["score"]), reverse=True)
 

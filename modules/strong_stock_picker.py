@@ -30,18 +30,31 @@ def _get_limit_threshold(code: str) -> float:
 
 
 def _fetch_industry_for_results(results: list[dict]) -> None:
-    """为结果列表批量获取行业信息"""
-    def _fetch(stock):
-        try:
-            info = get_stock_industry(stock["code"])
-            stock["industry"] = info.get("industry", "未知")
-            stock["sector"] = info.get("sector_type", "default")
-        except Exception:
-            stock["industry"] = "未知"
-            stock["sector"] = "default"
+    """为结果列表批量获取行业信息 — 直接从缓存读取"""
+    from modules.data_fetcher import _industry_cache as _ic
 
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        list(executor.map(_fetch, results))
+    for stock in results:
+        code = stock.get("code", "")
+        cached = _ic.get(code)
+        if isinstance(cached, dict):
+            industry = cached.get("industry", "未知")
+            stock["industry"] = industry
+            stock["sector"] = cached.get("sector_type", "default")
+        else:
+            # 缓存中没有，调用API获取
+            try:
+                info = get_stock_industry(code)
+                stock["industry"] = info.get("industry", "未知")
+                stock["sector"] = info.get("sector_type", "default")
+            except Exception:
+                stock["industry"] = "未知"
+                stock["sector"] = "default"
+
+    # 调试：检查问题股票
+    import re
+    for s in results:
+        if re.match(r'^\d+$', str(s.get("industry", ""))):
+            log.warning(f"行业异常: {s.get('code','')} {s.get('name','')} -> industry='{s.get('industry','')}'")
 
 
 def run_strong_stock_picker(top_n: int = 30) -> list[dict]:
@@ -125,15 +138,22 @@ def run_strong_stock_picker(top_n: int = 30) -> list[dict]:
             return (code, None)
 
     log.info(f"强势选股: 批量计算技术指标 {len(candidates)} 只...")
-    with ThreadPoolExecutor(max_workers=15) as executor:
-        futures = [executor.submit(calc_tech, c) for c in codes]
-        for future in as_completed(futures):
-            try:
-                code, tech = future.result(timeout=20)
-                if tech:
-                    tech_cache[code] = tech
-            except Exception:
-                pass
+    try:
+        with ThreadPoolExecutor(max_workers=15) as executor:
+            futures = [executor.submit(calc_tech, c) for c in codes]
+            for future in as_completed(futures):
+                try:
+                    code, tech = future.result(timeout=20)
+                    if tech:
+                        tech_cache[code] = tech
+                except Exception:
+                    pass
+    except RuntimeError as e:
+        # interpreter shutdown 时 ThreadPoolExecutor.submit() 会抛此异常
+        if "interpreter shutdown" in str(e).lower() or "cannot schedule" in str(e).lower():
+            log.warning(f"强势选股: 技术指标计算因解释器关闭而中断")
+            return []
+        raise
     log.info(f"强势选股: 技术指标计算完成 {len(tech_cache)}/{len(candidates)}")
 
     # 4. 逐只评分并构建输出
@@ -296,15 +316,22 @@ def run_strong_stock_picker(top_n: int = 30) -> list[dict]:
             log.debug(f"强势评分失败: {code}, {e}")
             return None
 
-    with ThreadPoolExecutor(max_workers=15) as executor:
-        futures = {executor.submit(score_one, c): c for c in candidates}
-        for future in as_completed(futures):
-            try:
-                result = future.result(timeout=30)
-                if result:
-                    results.append(result)
-            except Exception:
-                pass
+    try:
+        with ThreadPoolExecutor(max_workers=15) as executor:
+            futures = {executor.submit(score_one, c): c for c in candidates}
+            for future in as_completed(futures):
+                try:
+                    result = future.result(timeout=30)
+                    if result:
+                        results.append(result)
+                except Exception:
+                    pass
+    except RuntimeError as e:
+        # interpreter shutdown 时 ThreadPoolExecutor.submit() 会抛此异常
+        if "interpreter shutdown" in str(e).lower() or "cannot schedule" in str(e).lower():
+            log.warning("强势选股: 评分计算因解释器关闭而中断，返回已有结果")
+            return results
+        raise
 
     # 5. 按评分排序
     results.sort(key=lambda x: x["score"], reverse=True)
