@@ -421,6 +421,37 @@ def calculate_technical_indicators(code: str, days: int = 30) -> Optional[dict]:
         if len(closes) >= 14 and len(highs) >= 14 and len(lows) >= 14:
             atr_value = calc_atr(highs, lows, closes, period=14)
 
+        # 量比估算: 基于K线历史成交量（非交易时间实时量比不可用时的可靠替代）
+        volume_ratio_est = None
+        if volumes_all and len(volumes_all) >= 6:
+            # 最新一天成交量 vs 前5日平均成交量
+            latest_vol = volumes_all[-1]
+            prev_vols = [v for v in volumes_all[-6:-1] if v > 0]
+            if latest_vol > 0 and prev_vols:
+                avg_5d_vol = sum(prev_vols) / len(prev_vols)
+                if avg_5d_vol > 0:
+                    volume_ratio_est = round(latest_vol / avg_5d_vol, 2)
+
+        # 换手率估算: 基于K线历史成交量均值（非交易时间实时换手不可用时的替代）
+        turnover_est = None
+        if volumes_all and len(volumes_all) >= 10:
+            # 取最近5个交易日的平均日成交量，作为"典型"换手参考
+            # 这个值不是精确换手率，但可用于信号判断（>0表示有成交）
+            recent_vols = [v for v in volumes_all[-5:] if v > 0]
+            if recent_vols:
+                turnover_est = round(sum(recent_vols) / len(recent_vols), 2)
+
+        # ADX 趋势强度指标 (v3 新增) — 衡量趋势是否值得追涨
+        adx_value = None
+        adx_plus_di = None
+        adx_minus_di = None
+        if len(closes) >= 28 and len(highs) >= 28 and len(lows) >= 28:
+            adx_full = calc_adx_full(highs, lows, closes, period=14)
+            if adx_full:
+                adx_value = adx_full["adx"]
+                adx_plus_di = adx_full["plus_di"]
+                adx_minus_di = adx_full["minus_di"]
+
         return {
             "rsi": round(rsi_value, 1),
             "macd_signal": macd_signal,
@@ -446,6 +477,13 @@ def calculate_technical_indicators(code: str, days: int = 30) -> Optional[dict]:
             # 动量指标 (供 V5 评分使用)
             "momentum_20": round((closes[-1] / closes[-20] - 1) * 100, 2) if len(closes) >= 20 else 0,
             "momentum_60": round((closes[-1] / closes[0] - 1) * 100, 2) if len(closes) >= 2 else 0,
+            # 量比/换手率估算 (基于K线历史数据)
+            "volume_ratio_est": volume_ratio_est,
+            "turnover_est": turnover_est,
+            # ADX 趋势强度指标 (v3 新增)
+            "adx": adx_value,
+            "adx_plus_di": adx_plus_di,
+            "adx_minus_di": adx_minus_di,
         }
     except Exception as e:
         log.debug(f"技术指标获取失败: {code}, {e}")
@@ -584,6 +622,161 @@ def calc_multi_rsi(
     for p in periods:
         result[f"rsi_{p}"] = calc_rsi(prices, p)
     return result
+
+
+def calc_adx(
+    highs: list[float],
+    lows: list[float],
+    closes: list[float],
+    period: int = 14,
+) -> Optional[float]:
+    """计算平均趋向指数 (Average Directional Index)
+
+    ADX 衡量趋势强度而非方向:
+      ADX > 25 表示强趋势, ADX < 20 表示无趋势/震荡
+
+    Returns:
+        最新的 ADX 值 (float), 数据不足时返回 None
+    """
+    if len(closes) < period * 2 or len(highs) < period * 2 or len(lows) < period * 2:
+        return None
+
+    tr_list: list[float] = []
+    plus_dm_list: list[float] = []
+    minus_dm_list: list[float] = []
+    for i in range(1, len(closes)):
+        tr = max(
+            highs[i] - lows[i],
+            abs(highs[i] - closes[i - 1]),
+            abs(lows[i] - closes[i - 1]),
+        )
+        tr_list.append(tr)
+        up_move = highs[i] - highs[i - 1]
+        down_move = lows[i - 1] - lows[i]
+        plus_dm_list.append(up_move if (up_move > down_move and up_move > 0) else 0.0)
+        minus_dm_list.append(down_move if (down_move > up_move and down_move > 0) else 0.0)
+
+    if len(tr_list) < period:
+        return None
+
+    def wilder_smooth(data: list[float], p: int) -> list[float]:
+        if len(data) < p:
+            return []
+        smoothed = [sum(data[:p])]
+        for i in range(p, len(data)):
+            smoothed.append(smoothed[-1] - smoothed[-1] / p + data[i])
+        return smoothed
+
+    atr_s = wilder_smooth(tr_list, period)
+    pdm_s = wilder_smooth(plus_dm_list, period)
+    mdm_s = wilder_smooth(minus_dm_list, period)
+    if not atr_s or not pdm_s or not mdm_s:
+        return None
+
+    plus_di: list[float] = []
+    minus_di: list[float] = []
+    for atr, pdm, mdm in zip(atr_s, pdm_s, mdm_s):
+        if atr > 0:
+            plus_di.append(100 * pdm / atr)
+            minus_di.append(100 * mdm / atr)
+        else:
+            plus_di.append(0.0)
+            minus_di.append(0.0)
+
+    if len(plus_di) < period:
+        return None
+
+    dx_list: list[float] = []
+    for pdi, mdi in zip(plus_di, minus_di):
+        denom = pdi + mdi
+        dx_list.append(100 * abs(pdi - mdi) / denom if denom > 0 else 0.0)
+
+    if len(dx_list) < period:
+        return None
+
+    adx = sum(dx_list[:period]) / period
+    for i in range(period, len(dx_list)):
+        adx = (adx * (period - 1) + dx_list[i]) / period
+
+    return round(adx, 2)
+
+
+def calc_adx_full(
+    highs: list[float],
+    lows: list[float],
+    closes: list[float],
+    period: int = 14,
+) -> Optional[dict]:
+    """计算完整的 ADX 指标 (含 +DI/-DI)
+
+    Returns:
+        {"adx": float, "plus_di": float, "minus_di": float} 或 None
+    """
+    if len(closes) < period * 2 or len(highs) < period * 2 or len(lows) < period * 2:
+        return None
+
+    tr_list: list[float] = []
+    plus_dm_list: list[float] = []
+    minus_dm_list: list[float] = []
+    for i in range(1, len(closes)):
+        tr = max(
+            highs[i] - lows[i],
+            abs(highs[i] - closes[i - 1]),
+            abs(lows[i] - closes[i - 1]),
+        )
+        tr_list.append(tr)
+        up_move = highs[i] - highs[i - 1]
+        down_move = lows[i - 1] - lows[i]
+        plus_dm_list.append(up_move if (up_move > down_move and up_move > 0) else 0.0)
+        minus_dm_list.append(down_move if (down_move > up_move and down_move > 0) else 0.0)
+
+    if len(tr_list) < period:
+        return None
+
+    def wilder_smooth(data: list[float], p: int) -> list[float]:
+        if len(data) < p:
+            return []
+        smoothed = [sum(data[:p])]
+        for i in range(p, len(data)):
+            smoothed.append(smoothed[-1] - smoothed[-1] / p + data[i])
+        return smoothed
+
+    atr_s = wilder_smooth(tr_list, period)
+    pdm_s = wilder_smooth(plus_dm_list, period)
+    mdm_s = wilder_smooth(minus_dm_list, period)
+    if not atr_s or not pdm_s or not mdm_s:
+        return None
+
+    plus_di: list[float] = []
+    minus_di: list[float] = []
+    for atr, pdm, mdm in zip(atr_s, pdm_s, mdm_s):
+        if atr > 0:
+            plus_di.append(100 * pdm / atr)
+            minus_di.append(100 * mdm / atr)
+        else:
+            plus_di.append(0.0)
+            minus_di.append(0.0)
+
+    if len(plus_di) < period:
+        return None
+
+    dx_list: list[float] = []
+    for pdi, mdi in zip(plus_di, minus_di):
+        denom = pdi + mdi
+        dx_list.append(100 * abs(pdi - mdi) / denom if denom > 0 else 0.0)
+
+    if len(dx_list) < period:
+        return None
+
+    adx = sum(dx_list[:period]) / period
+    for i in range(period, len(dx_list)):
+        adx = (adx * (period - 1) + dx_list[i]) / period
+
+    return {
+        "adx": round(adx, 2),
+        "plus_di": round(plus_di[-1], 2),
+        "minus_di": round(minus_di[-1], 2),
+    }
 
 
 def evaluate_technical_score(

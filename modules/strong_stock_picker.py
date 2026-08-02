@@ -50,12 +50,6 @@ def _fetch_industry_for_results(results: list[dict]) -> None:
                 stock["industry"] = "未知"
                 stock["sector"] = "default"
 
-    # 调试：检查问题股票
-    import re
-    for s in results:
-        if re.match(r'^\d+$', str(s.get("industry", ""))):
-            log.warning(f"行业异常: {s.get('code','')} {s.get('name','')} -> industry='{s.get('industry','')}'")
-
 
 def run_strong_stock_picker(top_n: int = 30) -> list[dict]:
     """执行强势选股，返回与模板兼容的股票列表"""
@@ -95,6 +89,7 @@ def run_strong_stock_picker(top_n: int = 30) -> list[dict]:
             continue
         if q.market_cap > 0 and (q.market_cap < 20 or q.market_cap > 3000):
             continue
+        # Allow stocks with market_cap=0 (may be missing data)
         # 保留有一定涨幅但未涨停的股票
         limit_pct = _get_limit_threshold(code)
         if -2 <= q.change_pct <= limit_pct:
@@ -129,6 +124,10 @@ def run_strong_stock_picker(top_n: int = 30) -> list[dict]:
     # 3.5 批量计算技术指标（避免逐只调用超时）
     tech_cache: dict[str, dict] = {}
 
+    # 先批量获取K线（16线程+缓存+hedged request），避免 calculate_technical_indicators 逐只调用卡死
+    from modules.kline_fetcher import kline_fetcher
+    kline_fetcher.get_kline_batch(codes, count=120)
+
     def calc_tech(code: str):
         try:
             from modules.technical import calculate_technical_indicators
@@ -141,7 +140,7 @@ def run_strong_stock_picker(top_n: int = 30) -> list[dict]:
     try:
         with ThreadPoolExecutor(max_workers=15) as executor:
             futures = [executor.submit(calc_tech, c) for c in codes]
-            for future in as_completed(futures):
+            for future in as_completed(futures, timeout=60):
                 try:
                     code, tech = future.result(timeout=20)
                     if tech:
@@ -172,17 +171,38 @@ def run_strong_stock_picker(top_n: int = 30) -> list[dict]:
             ma_signal = tech.get("ma_signal", "") if tech else ""
             change_5d = tech.get("change_5d", 0.0) if tech else 0.0
 
-            # 量比计算: 优先使用API真实值
+            # 量比计算: 优先使用API真实值，其次用K线估算值，最后兜底计算
             turnover_rate = q.turnover
-            volume_ratio = q.volume_ratio if q.volume_ratio > 0 else _calc_volume_ratio(q)
+            volume_ratio = q.volume_ratio if q.volume_ratio > 0.5 else None
+            # 实时量比不可用(非交易时间)时，用K线历史量比替代
+            kline_volume_ratio = tech.get("volume_ratio_est") if tech else None
+            kline_turnover = tech.get("turnover_est") if tech else None  # K线成交量绝对值(手)
+            if volume_ratio is None:
+                volume_ratio = kline_volume_ratio if kline_volume_ratio and kline_volume_ratio > 0 else _calc_volume_ratio(q)
+            # 判断是否为盘后数据（实时换手率和量比都极低说明是非交易时间）
+            is_after_hours = turnover_rate < 0.3 and q.volume_ratio < 0.5
+            # 盘后换手率不可用时，不能直接用K线成交量替代（单位不同）
+            # 但可以用K线成交量>0来判断"该股票有正常交易"，避免信号全灭
+            has_kline_volume = kline_turnover is not None and kline_turnover > 0
 
             # 信号判断
             pullback_stable = _check_pullback_stable(q, ma_signal)
             limit_ratio = 1.0 + (_get_limit_threshold(code) + 0.5) / 100
             has_limit_up = q.high > 0 and q.prev_close > 0 and q.high / q.prev_close >= limit_ratio
-            gentle_volume = 1.0 <= volume_ratio <= 2.0 and turnover_rate > 0
-            moderate_volume = 2.0 < volume_ratio <= 4.0 and turnover_rate > 0
-            extreme_volume = volume_ratio > 4.0 and turnover_rate > 0
+            # 盘后数据修正: 非交易时间换手率/量比不可用，用K线估算值判断信号
+            if is_after_hours and kline_volume_ratio and kline_volume_ratio > 0:
+                gentle_volume = 1.0 <= kline_volume_ratio <= 2.0
+                moderate_volume = 2.0 < kline_volume_ratio <= 4.0
+                extreme_volume = kline_volume_ratio > 4.0
+            elif is_after_hours and has_kline_volume:
+                # 盘后但K线有成交量数据，说明该股正常交易，不因换手率为0而排除信号
+                gentle_volume = 1.0 <= volume_ratio <= 2.0
+                moderate_volume = 2.0 < volume_ratio <= 4.0
+                extreme_volume = volume_ratio > 4.0
+            else:
+                gentle_volume = 1.0 <= volume_ratio <= 2.0 and turnover_rate > 0
+                moderate_volume = 2.0 < volume_ratio <= 4.0 and turnover_rate > 0
+                extreme_volume = volume_ratio > 4.0 and turnover_rate > 0
 
             breakthrough_pct = -1
             try:
@@ -203,7 +223,9 @@ def run_strong_stock_picker(top_n: int = 30) -> list[dict]:
             pb = f.pb if f and f.pb > 0 else q.pb
 
             # 综合评分（技术面）
-            tech_score = _calc_strong_score(q, f, rsi, golden_cross, volume_ratio, boll_position, code)
+            tech_score = _calc_strong_score(q, f, rsi, golden_cross, volume_ratio, boll_position, code,
+                                            is_after_hours=is_after_hours, change_5d=change_5d,
+                                            adx_data=tech)
             
             # V5 multi-factor evaluation（基本面）
             v5_result = None
@@ -239,8 +261,8 @@ def run_strong_stock_picker(top_n: int = 30) -> list[dict]:
             # Calculate buy/sell points
             buy_sell = None
             try:
-                from modules.technical import calculate_technical_indicators
-                tech_bs = calculate_technical_indicators(code, days=30)
+                # 用已缓存的技术指标数据，不重新调用 calculate_technical_indicators
+                tech_bs = tech_cache.get(code)
                 stock_for_bs = {
                     "code": code, "name": q.name, "price": q.price,
                     "pe": pe if pe > 0 else 0, "pb": pb if pb > 0 else 0,
@@ -385,11 +407,15 @@ def _check_pullback_stable(q: StockQuote, ma_signal: str) -> bool:
 
 def _calc_strong_score(q: StockQuote, f: Optional[FinancialData],
                        rsi: float, golden_cross: bool,
-                       volume_ratio: float, boll_position: float, code: str = "") -> float:
+                       volume_ratio: float, boll_position: float, code: str = "",
+                       is_after_hours: bool = False, change_5d: float = 0.0,
+                       adx_data: Optional[dict] = None) -> float:
     """强势选股技术面评分 (0-100)
-    
+
     V5.5: 此函数仅计算技术面评分，不再包含基本面评分。
     基本面评分由multi_factor_evaluate()处理，在score_one()中混合。
+
+    V5.6: 非交易时间量比不可用时，给予中性分，并用5日涨幅动量补偿。
     """
     score = 0.0
     # 1. 涨幅得分 (0-25): 涨幅2-6%最优
@@ -427,7 +453,18 @@ def _calc_strong_score(q: StockQuote, f: Optional[FinancialData],
             score += max(0, 5 + chg)
 
     # 2. 量比得分 (0-20): 量比1.5-3最优（适度放量）
-    if 1.5 <= volume_ratio <= 3:
+    #    非交易时间量比不可用时，给予中性分(10/20)，用5日涨幅动量补偿
+    if is_after_hours and volume_ratio < 0.5:
+        # 盘后量比数据不可用，给予中性分
+        score += 10
+        # 用5日涨幅动量补偿量比缺失（5日涨幅>5%说明有资金介入）
+        if change_5d >= 10:
+            score += 8  # 强势动量补偿
+        elif change_5d >= 5:
+            score += 5  # 中等动量补偿
+        elif change_5d >= 3:
+            score += 2  # 温和动量补偿
+    elif 1.5 <= volume_ratio <= 3:
         score += 20
     elif 1.0 <= volume_ratio < 1.5:
         score += 12
@@ -453,6 +490,15 @@ def _calc_strong_score(q: StockQuote, f: Optional[FinancialData],
         tech_score += 4
     elif 0.5 <= boll_position < 0.7:
         tech_score += 7
+
+    # 5日涨幅动量加分 (0-5): 强势股应有持续上涨动量
+    if change_5d >= 15:
+        tech_score += 5  # 极强动量
+    elif change_5d >= 10:
+        tech_score += 4  # 强动量
+    elif change_5d >= 5:
+        tech_score += 2  # 中等动量
+
     score += min(25, tech_score)
 
     # 4. 基本面得分 (0-30) — V5.5: 保留但权重降低为参考
@@ -487,5 +533,20 @@ def _calc_strong_score(q: StockQuote, f: Optional[FinancialData],
             fundamental += 3
 
     score += fundamental
+
+    # 5. ADX 趋势强度加分 (V5.7 新增)
+    # ADX>=20 且 +DI>-DI 表示上升趋势有效，给予加分
+    # 回测验证: ADX 加分权重优于硬过滤
+    if adx_data:
+        adx_val = adx_data.get("adx")
+        plus_di = adx_data.get("adx_plus_di")
+        minus_di = adx_data.get("adx_minus_di")
+        if adx_val is not None and plus_di is not None and minus_di is not None:
+            if adx_val >= 25 and plus_di > minus_di:
+                score += 8
+            elif adx_val >= 20 and plus_di > minus_di:
+                score += 5
+            elif adx_val >= 25 and plus_di <= minus_di:
+                score += 3
 
     return min(100, max(0, score))
