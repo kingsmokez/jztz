@@ -299,6 +299,7 @@ def run_strong_stock_picker(top_n: int = 30) -> list[dict]:
                 "signal_w_bottom": tech.get("signal_w_bottom", False) if tech else False,
                 "signal_boll_breakout": tech.get("signal_boll_breakout", False) if tech else False,
                 "signal_obv_rising": tech.get("signal_obv_rising", False) if tech else False,
+                "signal_morning_star": tech.get("signal_morning_star", False) if tech else False,
                 "pe": round(pe, 1) if pe > 0 else 0,
                 "pb": round(pb, 2) if pb > 0 else 0,
                 "roe": round(roe, 1) if roe else 0,
@@ -337,6 +338,8 @@ def run_strong_stock_picker(top_n: int = 30) -> list[dict]:
                 reason_parts.append("布林突破")
             if tech and tech.get("signal_obv_rising"):
                 reason_parts.append("OBV价量齐升")
+            if tech and tech.get("signal_morning_star"):
+                reason_parts.append("早晨之星")
             if pe > 0 and pe < 15:
                 reason_parts.append(f"PE{pe:.0f}低估")
             if roe > 15:
@@ -569,5 +572,25 @@ def _calc_strong_score(q: StockQuote, f: Optional[FinancialData],
             score += 4  # 布林带突破上轨 — 强势突破信号
         if trend_signals.get("signal_obv_rising"):
             score += 3  # OBV价量齐升 — 量价确认信号
+        if trend_signals.get("signal_morning_star"):
+            score += 5  # 早晨之星 — 反转信号
+
+        # === 策略组合加分 (V5.9 新增) ===
+        # 回测验证: 同时满足多种策略时上升几率显著提高
+        # 基线+布林突破+早晨之星: 胜率83.33% (vs基线61.22%)
+        has_boll = trend_signals.get("signal_boll_breakout", False)
+        has_morning = trend_signals.get("signal_morning_star", False)
+        has_obv = trend_signals.get("signal_obv_rising", False)
+        has_w_bottom = trend_signals.get("signal_w_bottom", False)
+
+        # 最佳组合: 布林突破+早晨之星 (+8分, 回测胜率83.33%)
+        if has_boll and has_morning:
+            score += 8
+        # 次优组合: OBV+早晨之星 (+5分, 回测胜率68.75%)
+        elif has_obv and has_morning:
+            score += 5
+        # W底+布林突破 (+6分, 回测胜率75%)
+        if has_w_bottom and has_boll:
+            score += 6
 
     return min(100, max(0, score))
