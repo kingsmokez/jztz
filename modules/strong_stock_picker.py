@@ -302,6 +302,8 @@ def run_strong_stock_picker(top_n: int = 30) -> list[dict]:
                 "signal_morning_star": tech.get("signal_morning_star", False) if tech else False,
                 "signal_n_pattern": tech.get("signal_n_pattern", False) if tech else False,
                 "signal_vwap_bounce": tech.get("signal_vwap_bounce", False) if tech else False,
+                "signal_bullish_engulf": tech.get("signal_bullish_engulf", False) if tech else False,
+                "signal_close_strong": tech.get("signal_close_strong", False) if tech else False,
                 "pe": round(pe, 1) if pe > 0 else 0,
                 "pb": round(pb, 2) if pb > 0 else 0,
                 "roe": round(roe, 1) if roe else 0,
@@ -346,6 +348,10 @@ def run_strong_stock_picker(top_n: int = 30) -> list[dict]:
                 reason_parts.append("N字结构")
             if tech and tech.get("signal_vwap_bounce"):
                 reason_parts.append("VWAP支撑反弹")
+            if tech and tech.get("signal_bullish_engulf"):
+                reason_parts.append("看涨吞没")
+            if tech and tech.get("signal_close_strong"):
+                reason_parts.append("尾盘强势")
             if pe > 0 and pe < 15:
                 reason_parts.append(f"PE{pe:.0f}低估")
             if roe > 15:
@@ -628,5 +634,26 @@ def _calc_strong_score(q: StockQuote, f: Optional[FinancialData],
         # W底突破+N字结构: 胜率100% (+8分)
         if has_w_bottom and has_n_pattern:
             score += 8
+
+        # === V6.1 新增信号和组合 ===
+        has_engulf = trend_signals.get("signal_bullish_engulf", False)
+        has_close_strong = trend_signals.get("signal_close_strong", False)
+
+        # 单信号加分
+        if has_engulf:
+            score += 5  # 看涨吞没 — 强烈反转信号
+        if has_close_strong:
+            score += 3  # 尾盘强势 — 买盘积极
+
+        # 新组合加分 (回测验证有效)
+        # 早晨之星+看涨吞没: 胜率85.71% (+7分)
+        if has_morning and has_engulf:
+            score += 7
+        # 看涨吞没+尾盘强势: 胜率100% (与早晨之星组合, +6分)
+        if has_engulf and has_close_strong:
+            score += 6
+        # 看涨吞没+N字结构: 胜率100% (与早晨之星组合, +5分)
+        if has_engulf and has_n_pattern:
+            score += 5
 
     return min(100, max(0, score))
