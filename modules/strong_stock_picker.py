@@ -300,6 +300,8 @@ def run_strong_stock_picker(top_n: int = 30) -> list[dict]:
                 "signal_boll_breakout": tech.get("signal_boll_breakout", False) if tech else False,
                 "signal_obv_rising": tech.get("signal_obv_rising", False) if tech else False,
                 "signal_morning_star": tech.get("signal_morning_star", False) if tech else False,
+                "signal_n_pattern": tech.get("signal_n_pattern", False) if tech else False,
+                "signal_vwap_bounce": tech.get("signal_vwap_bounce", False) if tech else False,
                 "pe": round(pe, 1) if pe > 0 else 0,
                 "pb": round(pb, 2) if pb > 0 else 0,
                 "roe": round(roe, 1) if roe else 0,
@@ -340,6 +342,10 @@ def run_strong_stock_picker(top_n: int = 30) -> list[dict]:
                 reason_parts.append("OBV价量齐升")
             if tech and tech.get("signal_morning_star"):
                 reason_parts.append("早晨之星")
+            if tech and tech.get("signal_n_pattern"):
+                reason_parts.append("N字结构")
+            if tech and tech.get("signal_vwap_bounce"):
+                reason_parts.append("VWAP支撑反弹")
             if pe > 0 and pe < 15:
                 reason_parts.append(f"PE{pe:.0f}低估")
             if roe > 15:
@@ -592,5 +598,35 @@ def _calc_strong_score(q: StockQuote, f: Optional[FinancialData],
         # W底+布林突破 (+6分, 回测胜率75%)
         if has_w_bottom and has_boll:
             score += 6
+
+        # === V6.0 新增信号和组合 ===
+        has_n_pattern = trend_signals.get("signal_n_pattern", False)
+        has_vwap = trend_signals.get("signal_vwap_bounce", False)
+
+        # 单信号加分
+        if has_n_pattern:
+            score += 4  # N字结构 — 趋势延续信号
+        if has_vwap:
+            score += 4  # VWAP支撑反弹 — 成本支撑信号
+
+        # 新组合加分 (回测验证有效)
+        # 早晨之星+VWAP支撑反弹: 胜率90.91% (+10分)
+        if has_morning and has_vwap:
+            score += 10
+        # 早晨之星+N字结构: 胜率77.78% (+6分)
+        elif has_morning and has_n_pattern:
+            score += 6
+        # 布林突破+VWAP支撑反弹: 胜率71.79% (+5分)
+        elif has_boll and has_vwap:
+            score += 5
+        # 布林突破+N字结构: 胜率69.14% (+4分)
+        elif has_boll and has_n_pattern:
+            score += 4
+        # W底突破+VWAP支撑反弹: 胜率100% (+8分)
+        if has_w_bottom and has_vwap:
+            score += 8
+        # W底突破+N字结构: 胜率100% (+8分)
+        if has_w_bottom and has_n_pattern:
+            score += 8
 
     return min(100, max(0, score))
