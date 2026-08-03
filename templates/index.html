@@ -7,131 +7,9 @@
     <meta http-equiv="Expires" content="0">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>选股系统</title>
+    <link rel="stylesheet" href="/static/design-system.css">
     <style>
-        :root {
-            --bg-primary: #18182a;
-            --bg-secondary: #12121a;
-            --bg-dark: #0e0e18;
-            --bg-card: #1a1a2e;
-            --bg-card-hover: #22223a;
-            --border: #2a2a3a;
-            --text-primary: #e0e0e8;
-            --text-secondary: #9999aa;
-            --text-muted: #666677;
-            --accent: #d4a017;
-            --accent-hover: #b8860b;
-            --accent-light: #f0c040;
-            --up-color: #cf4444;
-            --up-bg: rgba(207,68,68,0.12);
-            --down-color: #2d9e5f;
-            --down-bg: rgba(45,158,95,0.12);
-            --green: #2d9e5f;
-            --green-bg: rgba(45,158,95,0.12);
-            --red: #cf4444;
-            --red-bg: rgba(207,68,68,0.12);
-            --gold: #d4a017;
-            --gold-bg: rgba(212,160,23,0.12);
-            --pink: #cf4444;
-            --cyan: #2d9e5f;
-            --radius-sm: 4px;
-            --radius-md: 6px;
-            --radius-lg: 8px;
-            --radius-full: 4px;
-            --shadow: 0 1px 3px rgba(0,0,0,0.3);
-            --shadow-md: 0 2px 8px rgba(0,0,0,0.3);
-            --shadow-lg: 0 4px 16px rgba(0,0,0,0.3);
-            --shadow-btn: none;
-            --shadow-bounce: none;
-            --transition: all 0.15s ease;
-            --transition-bounce: all 0.15s ease;
-        }
-
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
-            background: var(--bg-secondary);
-            color: var(--text-primary);
-            min-height: 100vh;
-            overflow-x: hidden;
-            -webkit-font-smoothing: antialiased;
-            line-height: 1.6;
-            font-size: 14px;
-        }
-
-        body::before, body::after { display: none; }
-
-        /* ===== 导航栏 - 深色风格 ===== */
-        .navbar {
-            position: sticky;
-            top: 0;
-            z-index: 100;
-            background: #18182a;
-            border-bottom: 1px solid #2a2a3a;
-            padding: 0 28px;
-            height: 52px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-
-        .nav-brand {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            font-weight: 600;
-            font-size: 15px;
-            color: #fff;
-        }
-
-        .nav-logo {
-            width: 28px; height: 28px;
-            background: #d4a017;
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 14px;
-            font-weight: 700;
-            color: #fff;
-        }
-
-        .nav-links {
-            display: flex;
-            gap: 6px;
-        }
-
-        .nav-link {
-            color: #8888aa;
-            text-decoration: none;
-            font-size: 14px;
-            font-weight: 500;
-            transition: all 0.15s ease;
-            cursor: pointer;
-            background: transparent;
-            border-radius: 4px;
-            padding: 6px 14px;
-        }
-
-        .nav-link:hover {
-            color: #fff;
-            background: rgba(255, 255, 255, 0.05);
-        }
-
-        .nav-link.active {
-            color: #d4a017;
-            background: rgba(212,160,23,0.1);
-            font-weight: 600;
-        }
-
-        @keyframes activePulse { }
-
-        .nav-time {
-            color: #666;
-            font-size: 13px;
-            font-variant-numeric: tabular-nums;
-        }
-
+        /* Page-specific overrides — shared design-system.css provides :root, *, body, .app-nav */
         /* ===== 主内容区 ===== */
         .main-content {
             position: relative;
@@ -152,7 +30,6 @@
             overflow: hidden;
         }
 
-        .hero::before, .hero::after { display: none; }
 
         .hero .hero-glow-bar {
             position: absolute;
@@ -848,7 +725,7 @@
 
         @media (max-width: 768px) {
             .main-content { padding: 20px 16px 40px; }
-            .navbar { padding: 0 16px; }
+            .app-nav { padding: 0 16px; }
             .hero { padding: 32px 0 28px; }
             .hero h1 { font-size: 26px; }
             .hero p { font-size: 14px; }
@@ -857,7 +734,7 @@
             .stat-value { font-size: 22px; }
             .stock-grid { grid-template-columns: 1fr; gap: 14px; }
             .stock-card { padding: 20px; }
-            .nav-links { display: none; }
+            .links { display: none; }
             .nav-time { display: none; }
             .tabs { width: 100%; }
             .tab { flex: 1; text-align: center; padding: 10px 8px; font-size: 13px; }
@@ -1005,11 +882,6 @@
         .skeleton-card .sk-tags { display: flex; gap: 8px; margin-top: 16px; }
         .skeleton-card .sk-tags .skeleton-line { width: 80px; height: 24px; border-radius: 6px; }
 
-        /* ===== 滚动条 ===== */
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.25); }
 
         /* ===== 推荐徽章 ===== */
         .recommendation-badge {
@@ -2230,6 +2102,7 @@
         }
         .risk-btn-primary:hover { background: var(--accent-hover); }
     </style>
+    <script src="/static/design-system.js"></script>
     <script src="/api/js/common.js"></script>
 </head>
 <body>
@@ -2242,22 +2115,22 @@
     <div class="toast-container" id="toastContainer"></div>
 
     <!-- 导航栏 -->
-    <nav class="navbar">
-        <div class="nav-brand">
-            <div class="nav-logo">JZ</div>
+    <nav class="app-nav">
+        <div class="brand">
+            <div class="logo">JZ</div>
             <span>价值投资</span>
         </div>
-        <div class="nav-links">
-            <a class="nav-link active" onclick="switchTab('pick')">选股</a>
-            <a class="nav-link" onclick="switchTab('market')">市场概览</a>
-            <a class="nav-link" onclick="switchTab('news')">热点板块</a>
-            <a class="nav-link" href="/daily_pick" target="_blank">中短线</a>
-            <a class="nav-link" href="/auction_pick" target="_blank">早盘竞价</a>
-            <a class="nav-link" href="/wp2_pick" target="_blank">尾盘强势股</a>
-            <a class="nav-link" href="/strong_pick" target="_blank">短线强势股</a>
-            <a class="nav-link" href="/dexter" target="_blank">Dexter</a>
-            <a class="nav-link" href="/cb_arbitrage" target="_blank">可转债套利</a>
-            <a class="nav-link" href="https://52etf.site/" target="_blank">板块热力图</a>
+        <div class="links">
+            <a class="link active" onclick="switchTab('pick')">选股</a>
+            <a class="link" onclick="switchTab('market')">市场概览</a>
+            <a class="link" onclick="switchTab('news')">热点板块</a>
+            <a class="link" href="/daily_pick" target="_blank">中短线</a>
+            <a class="link" href="/auction_pick" target="_blank">早盘竞价</a>
+            <a class="link" href="/wp2_pick" target="_blank">尾盘强势股</a>
+            <a class="link" href="/strong_pick" target="_blank">短线强势股</a>
+            <a class="link" href="/dexter" target="_blank">Dexter</a>
+            <a class="link" href="/cb_arbitrage" target="_blank">可转债套利</a>
+            <a class="link" href="https://52etf.site/" target="_blank">板块热力图</a>
         </div>
         <div class="nav-time" id="navTime"></div>
     </nav>
@@ -2486,7 +2359,7 @@
             'news': 'tabNews'
         };
 
-        // 通过 data-tab 属性匹配 tab 按钮和 nav-link，不依赖索引
+        // 通过 data-tab 属性匹配 tab 按钮和 nav link，不依赖索引
         const panelId = panelMap[tab];
         if (!panelId) return;
 
@@ -2503,8 +2376,8 @@
             btn.classList.toggle('active', match && match[1] === tab);
         });
 
-        // 4. 高亮对应的 nav-link
-        document.querySelectorAll('.nav-link').forEach(link => {
+        // 4. 高亮对应的 nav link
+        document.querySelectorAll('.app-nav .link').forEach(link => {
             const match = link.getAttribute('onclick')?.match(/switchTab\('(\w+)'\)/);
             link.classList.toggle('active', match && match[1] === tab);
         });
@@ -2513,7 +2386,7 @@
         const tabsEl = document.querySelector('.tabs');
         if (tabsEl) {
             const rect = tabsEl.getBoundingClientRect();
-            // 如果 tabs 顶部被导航栏遮挡（navbar高64px）或在视口外，则滚动到可见位置
+            // 如果 tabs 顶部被导航栏遮挡（app-nav高50px）或在视口外，则滚动到可见位置
             if (rect.top < 70 || rect.bottom > window.innerHeight) {
                 const offset = tabsEl.offsetTop - 70; // 导航栏高度64px + 6px间距
                 window.scrollTo({ top: offset, behavior: 'smooth' });
@@ -2800,6 +2673,7 @@
         renderPickResults(pickData, false);
     }
 
+    let _pickPollTimer = null;
     async function runPick() {
         const btn = document.getElementById('btnPick');
         btn.classList.add('loading');
@@ -2810,10 +2684,38 @@
         try {
             const resp = await fetch('/api/pick');
             const data = await resp.json();
-            if (data.success) {
+            if (data.success && data.results && data.results.length > 0) {
                 pickData = data;
                 renderPickResults(data, true);
                 showToast(`选股完成，扫描 ${data.total_scanned} 只，筛选 ${data.results.length} 只`, 'success');
+            } else if (data.success) {
+                // 后台正在选股，开始轮询
+                document.getElementById('pickResult').innerHTML = getSkeletonHTML(8);
+                showToast('正在后台选股，请稍候...', 'info');
+                if (_pickPollTimer) clearInterval(_pickPollTimer);
+                let attempts = 0;
+                _pickPollTimer = setInterval(async () => {
+                    attempts++;
+                    if (attempts > 150) {
+                        clearInterval(_pickPollTimer);
+                        showToast('选股仍在进行，请稍后刷新页面', 'warning');
+                        btn.classList.remove('loading');
+                        btn.disabled = false;
+                        return;
+                    }
+                    try {
+                        const r = await fetch('/api/pick?t=' + Date.now());
+                        const d = await r.json();
+                        if (d.success && d.results && d.results.length > 0) {
+                            clearInterval(_pickPollTimer);
+                            pickData = d;
+                            renderPickResults(d, true);
+                            showToast(`选股完成，扫描 ${d.total_scanned} 只，筛选 ${d.results.length} 只`, 'success');
+                            btn.classList.remove('loading');
+                            btn.disabled = false;
+                        }
+                    } catch (e) {}
+                }, 2000);
             } else {
                 showToast('选股失败：' + (data.error || '未知错误'), 'error');
                 document.getElementById('pickResult').innerHTML = `
@@ -2825,12 +2727,14 @@
         } catch (e) {
             showToast('网络错误：' + e.message, 'error');
         } finally {
-            btn.classList.remove('loading');
-            btn.disabled = false;
+            if (!_pickPollTimer || !_pickPollTimer.__running) {
+                btn.classList.remove('loading');
+                btn.disabled = false;
+            }
         }
     }
 
-    // 刷新财务数据
+    // 刷新财务数据（异步轮询，避免请求超时）
     async function refreshFinancials() {
         // 获取当前显示的股票代码列表
         if (!pickData || !pickData.results || pickData.results.length === 0) {
@@ -2841,28 +2745,60 @@
         const btn = document.getElementById('btnRefreshFin');
         btn.classList.add('loading');
         btn.disabled = true;
-        btn.innerHTML = '<span class="btn-icon">⏳</span><span>刷新中...</span>';
+
+        let pollInterval = null;
+        const finish = (msg, type = 'success') => {
+            if (pollInterval) clearInterval(pollInterval);
+            btn.classList.remove('loading');
+            btn.disabled = false;
+            btn.innerHTML = '<span class="btn-icon"></span><span>刷新财务数据</span>';
+            showToast(msg, type);
+        };
 
         try {
-            const resp = await fetch('/api/refresh_financials', {
+            const resp = await fetchWithCSRF('/api/refresh_financials', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ codes })
             });
-            const data = await resp.json();
-            if (data.success) {
-                showToast(`财务数据已更新：成功 ${data.updated} 只，失败 ${data.failed} 只`, 'success');
-                // 重新选股以使用最新数据
-                runPick();
-            } else {
-                showToast('刷新失败：' + (data.error || '未知错误'), 'error');
+            const startData = await resp.json();
+            if (!startData.success) {
+                finish('刷新失败：' + (startData.error || '未知错误'), 'error');
+                return;
             }
+            if (startData.started === false) {
+                finish('已有刷新任务在执行中，请稍候', 'warning');
+                return;
+            }
+
+            // 轮询状态
+            let pollCount = 0;
+            pollInterval = setInterval(async () => {
+                pollCount++;
+                const progress = Math.min(90, Math.round((pollCount * 2) / codes.length * 100));
+                btn.innerHTML = `<span class="btn-icon">⏳</span><span>刷新中 ${progress}%...</span>`;
+
+                if (pollCount > 60) { // 最多轮询 60 秒
+                    finish('刷新时间较长，已转入后台继续执行，请稍后手动刷新页面查看', 'warning');
+                    return;
+                }
+
+                try {
+                    const statusResp = await fetch('/api/refresh_financials_status?t=' + Date.now());
+                    const statusData = await statusResp.json();
+                    if (!statusData.success) return;
+                    const s = statusData.status;
+                    if (!s.running) {
+                        finish(`财务数据已更新：成功 ${s.updated} 只，失败 ${s.failed} 只`, 'success');
+                        // 重新选股以使用最新数据
+                        runPick();
+                    }
+                } catch (e) {
+                    // 轮询异常忽略，继续等待
+                }
+            }, 1000);
         } catch (e) {
-            showToast('网络错误：' + e.message, 'error');
-        } finally {
-            btn.classList.remove('loading');
-            btn.disabled = false;
-            btn.innerHTML = '<span class="btn-icon"></span><span>刷新财务数据</span>';
+            finish('网络错误：' + e.message, 'error');
         }
     }
 
@@ -2871,11 +2807,25 @@
         const filtered = getFilteredResults();
 
         // 更新统计
-        document.getElementById('statRecommend').textContent = allResults.length;
-        document.getElementById('statScanned').textContent = data.total_scanned;
-        document.getElementById('statTime').textContent = data.time.slice(11, 16);
+        var elRecommend = document.getElementById('statRecommend');
+        var elScanned = document.getElementById('statScanned');
+        var elTime = document.getElementById('statTime');
+        if (typeof FX !== 'undefined' && FX.countUp) {
+            FX.countUp(elRecommend, allResults.length, { duration: 600 });
+            FX.countUp(elScanned, data.total_scanned, { duration: 600 });
+        } else {
+            elRecommend.textContent = allResults.length;
+            elScanned.textContent = data.total_scanned;
+        }
+        elTime.textContent = data.time.slice(11, 16);
         if (allResults.length > 0) {
-            document.getElementById('statTopScore').textContent = (allResults[0].v5_score || allResults[0].score).toFixed(1) + '分';
+            var topScore = (allResults[0].v5_score || allResults[0].score);
+            var elTopScore = document.getElementById('statTopScore');
+            if (typeof FX !== 'undefined' && FX.countUp) {
+                FX.countUp(elTopScore, topScore, { decimals: 1, suffix: '分', duration: 600 });
+            } else {
+                elTopScore.textContent = topScore.toFixed(1) + '分';
+            }
             document.getElementById('statTopName').textContent = allResults[0].name;
         }
 
@@ -3197,21 +3147,21 @@
         <div class="stats-grid" style="margin-bottom:24px;">
             <div class="stat-card">
                 <div class="stat-label">股票总数</div>
-                <div class="stat-value neutral">${s.total}</div>
+                <div class="stat-value neutral" id="mktTotal">0</div>
             </div>
             <div class="stat-card">
                 <div class="stat-label">上涨</div>
-                <div class="stat-value up">${s.up}</div>
+                <div class="stat-value up" id="mktUp">0</div>
                 <div class="stat-sub">${(s.up/s.total*100).toFixed(1)}%</div>
             </div>
             <div class="stat-card">
                 <div class="stat-label">下跌</div>
-                <div class="stat-value down">${s.down}</div>
+                <div class="stat-value down" id="mktDown">0</div>
                 <div class="stat-sub">${(s.down/s.total*100).toFixed(1)}%</div>
             </div>
             <div class="stat-card">
                 <div class="stat-label">平均涨跌</div>
-                <div class="stat-value ${s.avg_change >= 0 ? 'up' : 'down'}">${s.avg_change >= 0 ? '+' : ''}${s.avg_change}%</div>
+                <div class="stat-value ${s.avg_change >= 0 ? 'up' : 'down'}" id="mktAvg">0</div>
             </div>
         </div>`;
 
@@ -3225,6 +3175,48 @@
         html += `<p style="text-align:center;color:var(--text-muted);font-size:12px;margin-top:16px;">更新时间：${data.time}</p>`;
 
         document.getElementById('marketResult').innerHTML = html;
+
+        // Animate market stat values with FX.countUp
+        if (typeof FX !== 'undefined' && FX.countUp) {
+            FX.countUp(document.getElementById('mktTotal'), s.total, { duration: 600 });
+            FX.countUp(document.getElementById('mktUp'), s.up, { duration: 600 });
+            FX.countUp(document.getElementById('mktDown'), s.down, { duration: 600 });
+            FX.countUp(document.getElementById('mktAvg'), s.avg_change, { decimals: 2, prefix: s.avg_change >= 0 ? '+' : '', suffix: '%', duration: 600 });
+        }
+
+        // Price flash + auto-refresh (30s interval)
+        if (!window._marketRefreshInterval) {
+            window._marketRefreshInterval = setInterval(async function() {
+                try {
+                    const resp = await fetch('/api/market');
+                    const freshData = await resp.json();
+                    if (!freshData.success) return;
+                    // Update price cells with flash animation
+                    const tables = document.querySelectorAll('#tabMarket table');
+                    const allPriceCells = document.querySelectorAll('#tabMarket td[data-col="price"]');
+                    allPriceCells.forEach(function(td) {
+                        const code = td.dataset.code;
+                        if (!code) return;
+                        // Find the stock in fresh data
+                        const lists = [freshData.top_gainers, freshData.top_losers, freshData.top_volume];
+                        let stock = null;
+                        for (const list of lists) {
+                            if (!list) continue;
+                            stock = list.find(s => s.code === code);
+                            if (stock) break;
+                        }
+                        if (!stock) return;
+                        const oldVal = parseFloat(td.dataset.val);
+                        const newVal = stock.price;
+                        td.dataset.val = newVal.toFixed(2);
+                        td.textContent = newVal.toFixed(2);
+                        if (typeof FX !== 'undefined' && FX.flash && oldVal !== newVal) {
+                            FX.flash(td, newVal > oldVal ? 1 : -1);
+                        }
+                    });
+                } catch(e) { /* silently ignore refresh errors */ }
+            }, 30000);
+        }
     }
 
     function renderTable(title, items, colorClass) {
@@ -3235,7 +3227,7 @@
             <tr style="cursor:pointer;" onclick="showStockDetail('${item.code}','${item.name}')">
                 <td style="color:var(--text-muted);font-weight:600;">${i + 1}</td>
                 <td><span class="td-name" style="color:var(--accent-light);">${item.name}${item.industry ? ' <span style="color:var(--text-muted);font-size:0.85em;font-weight:400;">· ' + item.industry + '</span>' : ''}</span><br><span class="td-code">${item.code}</span></td>
-                <td style="font-weight:600;font-variant-numeric:tabular-nums;">${item.price.toFixed(2)}</td>
+                <td data-col="price" data-val="${item.price.toFixed(2)}" data-code="${item.code}" style="font-weight:600;font-variant-numeric:tabular-nums;">${item.price.toFixed(2)}</td>
                 <td style="color:${changeColor(item.change_pct)};font-weight:600;font-variant-numeric:tabular-nums;">
                     ${sign(item.change_pct)}${item.change_pct.toFixed(2)}%
                 </td>
@@ -3945,7 +3937,7 @@
                     return `<tr style="cursor:pointer;" onclick="showStockDetail('${s.code}','${s.name}')">
                         <td style="color:var(--text-muted)">${i + 1}</td>
                         <td><span class="td-name" style="color:var(--accent-light);">${s.name}${s.industry ? ' <span style="color:var(--text-muted);font-size:0.85em;font-weight:400;">· ' + s.industry + '</span>' : ''}</span><br><span class="td-code">${s.code}</span></td>
-                        <td style="font-weight:700">${s.price.toFixed(2)}</td>
+                        <td data-col="price" data-val="${s.price.toFixed(2)}" data-code="${s.code}" style="font-weight:700">${s.price.toFixed(2)}</td>
                         <td class="${colorCls}" style="font-weight:700">${sign}${s.change_pct.toFixed(2)}%</td>
                         <td style="color:${peColor}">${s.pe > 0 ? s.pe.toFixed(1) : '-'}</td>
                         <td style="color:${s.roe >= 20 ? 'var(--red)' : 'var(--text-secondary)'}">${s.roe > 0 ? s.roe.toFixed(1) + '%' : '-'}</td>
