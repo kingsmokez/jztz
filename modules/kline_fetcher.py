@@ -50,13 +50,16 @@ class KlineFetcher:
         # 雪球专用 session（需要独立 cookie）
         self._xueqiu_session = None
         self._xueqiu_cookie_time = 0.0
+        # K线结果缓存: {(code, count): (result, expire_time)}
+        self._cache: dict[tuple[str, int], tuple[Optional[list[dict]], float]] = {}
+        self._cache_ttl = 300  # 5分钟缓存，同一次选股周期内不重复请求
 
     # ------------------------------------------------------------------
     # 公开 API
     # ------------------------------------------------------------------
 
     def get_kline(self, code: str, count: int = 120) -> Optional[list[dict]]:
-        """获取日K线数据，6源自动切换
+        """获取日K线数据，6源自动切换 + 结果缓存 + 并发 hedged request
 
         Args:
             code: 纯数字代码，如 "600519"
@@ -66,36 +69,86 @@ class KlineFetcher:
             统一格式 [{"date","open","close","high","low","volume"}, ...] 按时间正序，
             或 None（所有源均失败）
         """
-        empty_count = 0  # 连续返回空列表的源计数（区分"源故障"和"股票无数据"）
+        # 1. 查缓存
+        cache_key = (code, count)
+        with self._lock:
+            cached = self._cache.get(cache_key)
+            if cached is not None:
+                result, expire_at = cached
+                if time.time() < expire_at:
+                    self._stats_hit()
+                    return result
 
-        for source_name in self.SOURCES:
-            if not self._is_healthy(source_name):
-                continue
+        # 2. 并发 hedged request: 同时请求前2个健康源，取最先成功的
+        healthy_sources = [s for s in self.SOURCES if self._is_healthy(s)]
+        # 取前2个健康源并发，其余顺序 fallback
+        hedge_sources = healthy_sources[:2]
+        fallback_sources = healthy_sources[2:]
+
+        empty_count = 0
+
+        if hedge_sources:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            hedge_results: dict[str, Optional[list[dict]]] = {}
+
+            def _try_source(src_name: str) -> tuple[str, Optional[list[dict]]]:
+                try:
+                    result = self._dispatch(src_name, code, count)
+                    return (src_name, result)
+                except Exception:
+                    return (src_name, None)
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                futures = {pool.submit(_try_source, s): s for s in hedge_sources}
+                for future in as_completed(futures, timeout=8):
+                    src_name = futures[future]
+                    try:
+                        name, result = future.result(timeout=5)
+                        hedge_results[name] = result
+                        # 如果有好的结果，立即返回（不用等另一个）
+                        if result and len(result) >= self.MIN_KLINES:
+                            self._mark_success(name)
+                            self._set_cache(cache_key, result)
+                            return result
+                        if result and len(result) > 0:
+                            self._mark_success(name)
+                            self._set_cache(cache_key, result)
+                            return result
+                        if result is not None and len(result) == 0:
+                            empty_count += 1
+                    except Exception:
+                        self._mark_fail(src_name, code)
+
+            # hedged 都没拿到足够数据，检查是否有部分结果可用
+            for src_name in hedge_sources:
+                result = hedge_results.get(src_name)
+                if result and len(result) > 0:
+                    self._set_cache(cache_key, result)
+                    return result
+
+        # 3. 顺序 fallback 剩余源
+        for source_name in fallback_sources:
             try:
                 result = self._dispatch(source_name, code, count)
                 if result and len(result) >= self.MIN_KLINES:
                     self._mark_success(source_name)
+                    self._set_cache(cache_key, result)
                     return result
-                # 有数据但不够 MIN_KLINES — 次新股，宽容返回
                 if result and len(result) > 0:
                     self._mark_success(source_name)
+                    self._set_cache(cache_key, result)
                     return result
-                # 源正常响应但返回空列表 → 这只股票本身无K线数据
                 if result is not None and len(result) == 0:
                     empty_count += 1
-                # 源故障（None）→ 标记失败
             except Exception as e:
                 log.debug(f"K线获取异常({source_name}): {code}, {e}")
                 self._mark_fail(source_name, code)
 
-            # 快速退出：如果前2个主源（腾讯kline + 新浪）都返回空列表，
-            # 说明这只股票确实没有K线数据（次新股/待上市/已退市），
-            # 继续尝试剩余源只是浪费时间
+            # 快速退出：前2个主源都返回空列表，说明这只股票确实没有K线数据
             if empty_count >= 2:
                 log.debug(f"K线数据不存在(次新/待上市/退市): {code}, {empty_count}个主源无数据")
                 return None
 
-        # 所有源均失败
         log.warning(f"K线获取全部失败: {code}, 源状态={self._health_summary()}")
         return None
 
@@ -141,6 +194,92 @@ class KlineFetcher:
             for s in self.SOURCES:
                 self._fail_counts[s] = 0
                 self._mark_time[s] = 0.0
+
+    def _set_cache(self, key: tuple[str, int], result: Optional[list[dict]]) -> None:
+        """写入K线结果缓存"""
+        with self._lock:
+            self._cache[key] = (result, time.time() + self._cache_ttl)
+            # 缓存容量控制：超过2000条时清理最旧的
+            if len(self._cache) > 2000:
+                # 清理已过期的
+                now = time.time()
+                expired = [k for k, (_, exp) in self._cache.items() if now >= exp]
+                for k in expired:
+                    del self._cache[k]
+                if not expired:
+                    # 没有过期的，删掉前100条
+                    for k in list(self._cache.keys())[:100]:
+                        del self._cache[k]
+
+    def _stats_hit(self) -> None:
+        """缓存命中计数"""
+        with self._lock:
+            if "_cache" not in self._stats:
+                self._stats["_cache"] = {"ok": 0, "fail": 0}
+            self._stats["_cache"]["ok"] += 1
+
+    def clear_cache(self) -> None:
+        """清空K线缓存（用于刷新数据时）"""
+        with self._lock:
+            self._cache.clear()
+
+    def get_kline_batch(self, codes: list[str], count: int = 120) -> dict[str, Optional[list[dict]]]:
+        """批量获取K线数据，使用线程池并发
+
+        Args:
+            codes: 股票代码列表
+            count: K线条数
+
+        Returns:
+            {code: kline_list 或 None}
+        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        results: dict[str, Optional[list[dict]]] = {}
+        # 分离已缓存和未缓存的
+        uncached = []
+        with self._lock:
+            for code in codes:
+                cache_key = (code, count)
+                cached = self._cache.get(cache_key)
+                if cached is not None and time.time() < cached[1]:
+                    results[code] = cached[0]
+                else:
+                    uncached.append(code)
+
+        if not uncached:
+            return results
+
+        def _fetch_one_simple(code: str) -> Optional[list[dict]]:
+            """简化版获取：顺序尝试健康源，不开嵌套线程池"""
+            healthy = [s for s in self.SOURCES if self._is_healthy(s)]
+            empty_count = 0
+            for source_name in healthy:
+                try:
+                    result = self._dispatch(source_name, code, count)
+                    if result and len(result) > 0:
+                        self._mark_success(source_name)
+                        self._set_cache((code, count), result)
+                        return result
+                    if result is not None and len(result) == 0:
+                        empty_count += 1
+                except Exception:
+                    self._mark_fail(source_name, code)
+                if empty_count >= 2:
+                    return None
+            return None
+
+        max_workers = min(len(uncached), 20)
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = {pool.submit(_fetch_one_simple, c): c for c in uncached}
+            for future in as_completed(futures, timeout=180):
+                code = futures[future]
+                try:
+                    results[code] = future.result(timeout=15)
+                except Exception:
+                    results[code] = None
+
+        return results
 
     # ------------------------------------------------------------------
     # 健康检测
@@ -387,7 +526,18 @@ class KlineFetcher:
     def get_minute_kline(self, code: str, minute: int = 30, count: int = 60):
         klt_map = {1:"1",5:"5",15:"15",30:"30",60:"60"}
         klt = klt_map.get(minute, "30")
-        market = "1" if code.startswith("6") else "0"
+        # 指数代码: 000xxx/399xxx 是沪深300/深证等指数，需要特殊处理市场前缀
+        # 上证指数系列: 000001(上证), 000300(沪深300), 000016(上证50), 000905(中证500) 等
+        # 深证指数系列: 399001(深证成指), 399006(创业板指) 等
+        if code.startswith("399") or code.startswith("396"):
+            market = "0"  # 深证指数
+        elif code.startswith("0") or code.startswith("3"):
+            # 0开头可能是上证指数(000300)也可能是深市股票
+            # 沪深300/上证50/中证500等主要指数都用上海前缀
+            _sh_index_prefixes = ("0000", "0001", "0002", "0003", "0006", "0009")
+            market = "1" if code[:4] in _sh_index_prefixes else "0"
+        else:
+            market = "1"  # 6开头=上海股票
         try:
             from modules.http_client import session, EM_HEADERS
             r = session.get("https://push2his.eastmoney.com/api/qt/stock/kline/get", params={
