@@ -1,4 +1,4 @@
-﻿"""Flask Blueprint - 每日选股路由
+"""Flask Blueprint - 每日选股路由
 
 恢复旧版早盘/午盘双时段逻辑:
 - 早盘: 侧重基本面和估值，排除涨幅>5%，选Top 5
@@ -236,10 +236,35 @@ def daily_pick():
 
 @daily_bp.route("/api/daily_pick")
 def api_daily_pick():
+    """获取每日选股结果（异步刷新，优先返回缓存避免超时）"""
     global DAILY_PICK_DATA
 
     with DAILY_PICK_LOCK:
         data = dict(DAILY_PICK_DATA) if DAILY_PICK_DATA else {}
+
+    # 如果内存数据为空，从web_app缓存恢复
+    if not data:
+        try:
+            from web_app import get_picker_data
+            picker_data = get_picker_data()
+            if not picker_data:
+                # web_app内存也为空，直接从缓存文件读取
+                import json, os
+                cache_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'daily_pick_raw_cache.json')
+                if os.path.exists(cache_path):
+                    with open(cache_path, 'r', encoding='utf-8') as f:
+                        cached = json.load(f)
+                        if cached and cached.get('stocks'):
+                            picker_data = cached['stocks']
+            if picker_data and len(picker_data) > 0:
+                data = {
+                    'morning': {'results': picker_data, 'total': len(picker_data)},
+                    'afternoon': {'results': picker_data, 'total': len(picker_data)},
+                }
+                with DAILY_PICK_LOCK:
+                    DAILY_PICK_DATA = data
+        except Exception:
+            pass
 
     now = datetime.now()
     current_hour = now.hour
@@ -247,13 +272,19 @@ def api_daily_pick():
     need_morning = not data.get('morning') or not data.get('morning', {}).get('results')
     need_afternoon = not data.get('afternoon') or not data.get('afternoon', {}).get('results')
 
-    if need_afternoon and current_hour >= 14:
-        _execute_daily_pick('afternoon')
-    if need_morning and current_hour >= 9:
-        _execute_daily_pick('morning')
+    # 缺失数据时在后台异步执行选股，避免请求超时
+    def _background_daily():
+        try:
+            if need_afternoon and current_hour >= 14:
+                _execute_daily_pick('afternoon')
+            if need_morning and current_hour >= 9:
+                _execute_daily_pick('morning')
+        except Exception as e:
+            log.error(f"后台每日选股异常: {e}", exc_info=True)
 
-    with DAILY_PICK_LOCK:
-        data = dict(DAILY_PICK_DATA) if DAILY_PICK_DATA else {}
+    if need_morning or need_afternoon:
+        t = threading.Thread(target=_background_daily, daemon=True, name="daily_pick_bg")
+        t.start()
 
     for sess in ['morning', 'afternoon']:
         if data.get(sess) and data[sess].get('results'):
@@ -267,6 +298,7 @@ def api_daily_pick():
         "morning": data.get('morning'),
         "afternoon": data.get('afternoon'),
         "last_update": data.get('last_update'),
+        "background_running": need_morning or need_afternoon,
     })
 
 
@@ -291,12 +323,28 @@ def api_daily_pick_run():
 
 @daily_bp.route("/api/pick")
 def api_pick():
+    """获取每日选股结果，无数据时后台异步选股并立即返回空列表避免超时"""
+    import threading
     try:
         from web_app import get_picker_data
         results = get_picker_data()
         if not results:
-            from modules.stock_picker import run_picker
-            results = run_picker()
+            # 后台异步选股，避免请求超时
+            def _bg_pick():
+                try:
+                    from web_app import run_daily_picker
+                    run_daily_picker()
+                except Exception as e:
+                    log.error(f"后台每日选股异常: {e}")
+            t = threading.Thread(target=_bg_pick, daemon=True, name="daily_pick_bg")
+            t.start()
+            return jsonify({
+                "success": True,
+                "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "total_scanned": 0,
+                "results": [],
+                "message": "正在后台选股，请稍后刷新",
+            })
         from modules.data_fetcher import get_preset_financials
 
         total = results[0].get('_total_scanned', len(get_preset_financials())) if results else len(get_preset_financials())
@@ -659,33 +707,3 @@ def _execute_daily_pick(session_type):
             log.warning("选股失败，无结果")
     except Exception as e:
         log.error(f"选股执行失败: {e}", exc_info=True)
-
-def _schedule_daily_pick():
-    last_executed = {"morning": None, "afternoon": None}
-
-    while True:
-        now = datetime.now()
-        today = now.strftime('%Y-%m-%d')
-        current_time = now.strftime("%H:%M")
-
-        with DAILY_PICK_LOCK:
-            if DAILY_PICK_DATA.get('date') != today:
-                DAILY_PICK_DATA.update({
-                    "date": today,
-                    "morning": None,
-                    "afternoon": None,
-                    "last_update": None,
-                })
-                last_executed = {"morning": None, "afternoon": None}
-
-        if current_time == "09:27" and last_executed["morning"] != today:
-            last_executed["morning"] = today
-            threading.Thread(target=_execute_daily_pick, args=('morning',), daemon=True).start()
-            log.info("早盘选股任务已触发 (9:27)")
-
-        elif current_time == "14:30" and last_executed["afternoon"] != today:
-            last_executed["afternoon"] = today
-            threading.Thread(target=_execute_daily_pick, args=('afternoon',), daemon=True).start()
-            log.info("午盘选股任务已触发 (14:30)")
-
-        time.sleep(60)
