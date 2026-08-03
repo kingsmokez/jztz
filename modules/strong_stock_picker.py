@@ -304,6 +304,7 @@ def run_strong_stock_picker(top_n: int = 30) -> list[dict]:
                 "signal_vwap_bounce": tech.get("signal_vwap_bounce", False) if tech else False,
                 "signal_bullish_engulf": tech.get("signal_bullish_engulf", False) if tech else False,
                 "signal_close_strong": tech.get("signal_close_strong", False) if tech else False,
+                "signal_above_ma5": tech.get("signal_above_ma5", False) if tech else False,
                 "pe": round(pe, 1) if pe > 0 else 0,
                 "pb": round(pb, 2) if pb > 0 else 0,
                 "roe": round(roe, 1) if roe else 0,
@@ -352,6 +353,8 @@ def run_strong_stock_picker(top_n: int = 30) -> list[dict]:
                 reason_parts.append("看涨吞没")
             if tech and tech.get("signal_close_strong"):
                 reason_parts.append("尾盘强势")
+            if tech and tech.get("signal_above_ma5"):
+                reason_parts.append("连续站上MA5")
             if pe > 0 and pe < 15:
                 reason_parts.append(f"PE{pe:.0f}低估")
             if roe > 15:
@@ -654,6 +657,18 @@ def _calc_strong_score(q: StockQuote, f: Optional[FinancialData],
             score += 6
         # 看涨吞没+N字结构: 胜率100% (与早晨之星组合, +5分)
         if has_engulf and has_n_pattern:
+            score += 5
+
+        # === V6.2 新增信号和组合 ===
+        has_above_ma5 = trend_signals.get("signal_above_ma5", False)
+
+        # 单信号加分
+        if has_above_ma5:
+            score += 3  # 连续站上MA5 — 短线持续强势
+
+        # 新组合加分 (回测验证有效)
+        # 看涨吞没+连续站上MA5: 胜率72.73% (+5分)
+        if has_engulf and has_above_ma5:
             score += 5
 
     return min(100, max(0, score))
