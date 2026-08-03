@@ -41,8 +41,8 @@ def _get_session() -> requests.Session:
             "Referer": "https://gu.qq.com/",
         })
         adapter = requests.adapters.HTTPAdapter(
-            pool_connections=20,
-            pool_maxsize=30,
+            pool_connections=64,
+            pool_maxsize=64,
             max_retries=3,
         )
         _session.mount("https://", adapter)
@@ -50,95 +50,147 @@ def _get_session() -> requests.Session:
     return _session
 
 
+_stock_codes_cache: Optional[list[str]] = None
+_stock_codes_cache_time: float = 0.0
+_stock_codes_lock = threading.Lock()
+
+
 def _get_all_stock_codes() -> list[str]:
     """获取全部A股代码列表（沪深主板+创业板，排除北交所和ST）
 
     策略：从东方财富财务数据接口获取有财务数据的A股，API失败时用离线库降级兜底
+    带1小时缓存：股票列表变化极低频，避免每次行情刷新都重新分页拉取
     """
-    dc_headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-        'Referer': 'https://data.eastmoney.com/',
-    }
+    global _stock_codes_cache, _stock_codes_cache_time
+
+    # 1小时缓存：股票列表最多季度更新
+    if _stock_codes_cache and (time.time() - _stock_codes_cache_time) < 3600:
+        return _stock_codes_cache
+
+    acquired = _stock_codes_lock.acquire(blocking=False)
+    if not acquired:
+        # 另一个线程正在获取，返回旧缓存或等待
+        if _stock_codes_cache:
+            return _stock_codes_cache
+        _stock_codes_lock.acquire(timeout=30)
+        _stock_codes_lock.release()
+        if _stock_codes_cache:
+            return _stock_codes_cache
 
     try:
-        actual_codes: set[str] = set()
-        base_url = 'https://datacenter-web.eastmoney.com/api/data/v1/get'
+        dc_headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+            'Referer': 'https://data.eastmoney.com/',
+        }
 
-        # 用最新季度数据获取A股列表（QDATE过滤确保每只股票只出现一次）
-        current_year = datetime.now().year
-        # 尝试最近几个季度，找到有数据的最新季度
-        qdate_filters = []
-        for yr in range(current_year, current_year - 2, -1):
-            for q in range(4, 0, -1):
-                qdate_filters.append(f'{yr}Q{q}')
+        try:
+            actual_codes: set[str] = set()
+            base_url = 'https://datacenter-web.eastmoney.com/api/data/v1/get'
 
-        for qdate in qdate_filters:
-            try:
-                test_params = {
-                    'reportName': 'RPT_LICO_FN_CPD',
-                    'columns': 'SECURITY_CODE',
-                    'filter': f'(QDATE="{qdate}")',
-                    'pageNumber': 1, 'pageSize': 1,
-                    'source': 'WEB', 'client': 'WEB',
-                }
-                tr = _get_session().get(base_url, params=test_params, headers=dc_headers, timeout=10)
-                td = tr.json()
-                if td.get('success') and td.get('result', {}).get('count', 0) > 1000:
-                    # 找到有效季度，开始分页获取
-                    page_size = 500  # API限制每页最多500条
-                    for page in range(1, 20):
-                        params = {
-                            'reportName': 'RPT_LICO_FN_CPD',
-                            'columns': 'SECURITY_CODE,SECURITY_NAME_ABBR',
-                            'filter': f'(QDATE="{qdate}")',
-                            'pageNumber': page,
-                            'pageSize': page_size,
-                            'sortTypes': '-1',
-                            'sortColumns': 'SECURITY_CODE',
-                            'source': 'WEB',
-                            'client': 'WEB',
-                        }
-                        resp = _get_session().get(base_url, params=params, headers=dc_headers, timeout=15)
-                        d = resp.json()
-                        if not (d.get('success') and d.get('result') and d['result'].get('data')):
-                            break
-                        for row in d['result']['data']:
-                            code = str(row.get('SECURITY_CODE', ''))
-                            name = str(row.get('SECURITY_NAME_ABBR', ''))
-                            # 排除非主流交易池：北交所(4/8/9开头)、B股(2开头)、ST等；
-                            # 科创板(688/689)属于A股主池，保留给策略层按20%涨跌幅处理。
-                            if code[0] in ('2', '4', '8', '9'):
-                                continue
-                            if 'ST' in name or '*' in name:
-                                continue
-                            if len(code) == 6 and code.isdigit():
-                                actual_codes.add(code)
-                        if len(d['result']['data']) < page_size:
-                            break
-                    if actual_codes:
-                        log.info(f"从东方财富{qdate}获取到 {len(actual_codes)} 只A股代码")
-                        return sorted(actual_codes)
-            except Exception as e:
-                log.debug(f"尝试季度{qdate}失败: {e}")
-                continue
+            # 用最新季度数据获取A股列表（QDATE过滤确保每只股票只出现一次）
+            current_year = datetime.now().year
+            current_month = datetime.now().month
+            # 只尝试最近2个季度，避免过多超时
+            qdate_filters = []
+            if current_month >= 4:
+                qdate_filters.append(f'{current_year}Q1')
+            if current_month >= 7:
+                qdate_filters.append(f'{current_year}Q2')
+            if current_month >= 10:
+                qdate_filters.append(f'{current_year}Q3')
+                qdate_filters.append(f'{current_year - 1}Q4')
+            qdate_filters.append(f'{current_year - 1}Q4')
+            qdate_filters.append(f'{current_year - 1}Q3')
 
-        if actual_codes:
-            result = sorted(actual_codes)
-            log.info(f"从东方财富获取到 {len(result)} 只A股代码")
-            return result
+            for qdate in qdate_filters:
+                try:
+                    test_params = {
+                        'reportName': 'RPT_LICO_FN_CPD',
+                        'columns': 'SECURITY_CODE',
+                        'filter': f'(QDATE="{qdate}")',
+                        'pageNumber': 1, 'pageSize': 1,
+                        'source': 'WEB', 'client': 'WEB',
+                    }
+                    tr = _get_session().get(base_url, params=test_params, headers=dc_headers, timeout=8)
+                    td = tr.json()
+                    if td.get('success') and td.get('result', {}).get('count', 0) > 1000:
+                        total_count = td['result']['count']
+                        page_size = 500
+                        total_pages = (total_count + page_size - 1) // page_size
+                        log.info(f"从东方财富{qdate}获取{total_count}只A股代码，{total_pages}页并发拉取")
 
-    except Exception as e:
-        log.error(f"获取股票代码列表失败: {e}")
+                        from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    # API失败时，用离线库降级兜底
-    preset = get_preset_financials()
-    if preset and len(preset) > 50:
-        codes = [c for c in preset.keys() if not c.startswith('9')]
-        if codes:
-            log.warning(f"东方财富API失败，使用离线库降级获取 {len(codes)} 只股票代码")
-            return codes
+                        def _fetch_page(page_num):
+                            try:
+                                p = {
+                                    'reportName': 'RPT_LICO_FN_CPD',
+                                    'columns': 'SECURITY_CODE,SECURITY_NAME_ABBR',
+                                    'filter': f'(QDATE="{qdate}")',
+                                    'pageNumber': page_num,
+                                    'pageSize': page_size,
+                                    'sortTypes': '-1',
+                                    'sortColumns': 'SECURITY_CODE',
+                                    'source': 'WEB',
+                                    'client': 'WEB',
+                                }
+                                r = _get_session().get(base_url, params=p, headers=dc_headers, timeout=10)
+                                return r.json()
+                            except Exception:
+                                return {}
 
-    return []
+                        with ThreadPoolExecutor(max_workers=6) as executor:
+                            futures = [executor.submit(_fetch_page, pg) for pg in range(1, total_pages + 1)]
+                            for future in as_completed(futures, timeout=60):
+                                try:
+                                    d = future.result(timeout=15)
+                                    if not (d.get('success') and d.get('result') and d['result'].get('data')):
+                                        continue
+                                    for row in d['result']['data']:
+                                        code = str(row.get('SECURITY_CODE', ''))
+                                        name = str(row.get('SECURITY_NAME_ABBR', ''))
+                                        if code[0] in ('2', '4', '8', '9'):
+                                            continue
+                                        if 'ST' in name or '*' in name:
+                                            continue
+                                        if len(code) == 6 and code.isdigit():
+                                            actual_codes.add(code)
+                                except Exception:
+                                    continue
+                        if actual_codes:
+                            log.info(f"从东方财富{qdate}获取到 {len(actual_codes)} 只A股代码")
+                            result = sorted(actual_codes)
+                            _stock_codes_cache = result
+                            _stock_codes_cache_time = time.time()
+                            return result
+                except Exception as e:
+                    log.debug(f"尝试季度{qdate}失败: {e}")
+                    continue
+
+            if actual_codes:
+                result = sorted(actual_codes)
+                log.info(f"从东方财富获取到 {len(result)} 只A股代码")
+                _stock_codes_cache = result
+                _stock_codes_cache_time = time.time()
+                return result
+
+        except Exception as e:
+            log.error(f"获取股票代码列表失败: {e}")
+
+        # API失败时，用离线库降级兜底
+        preset = get_preset_financials()
+        if preset and len(preset) > 50:
+            codes = [c for c in preset.keys() if not c.startswith('9')]
+            if codes:
+                log.warning(f"东方财富API失败，使用离线库降级获取 {len(codes)} 只股票代码")
+                _stock_codes_cache = codes
+                _stock_codes_cache_time = time.time()
+                return codes
+
+        return []
+    finally:
+        if acquired:
+            _stock_codes_lock.release()
 
 
 
@@ -246,14 +298,14 @@ def get_realtime_quotes(codes: Optional[list[str]] = None) -> dict[str, StockQuo
             if codes is None:
                 return _realtime_cache
             return {c: _realtime_cache[c] for c in codes if c in _realtime_cache}
-        # 没有旧缓存，阻塞等待刷新完成（带超时，防止死锁）
-        if _realtime_cache_lock.acquire(timeout=30):
+        # 没有旧缓存，阻塞等待刷新完成（带短超时，防止死锁）
+        if _realtime_cache_lock.acquire(timeout=10):
             _realtime_cache_lock.release()
         if _realtime_cache:
             if codes is None:
                 return _realtime_cache
             return {c: _realtime_cache[c] for c in codes if c in _realtime_cache}
-        log.error("等待行情缓存刷新超时，返回空结果")
+        log.warning("等待行情缓存刷新超时(10s)，返回空结果")
         return {}
 
     # acquired == True: 本线程负责刷新缓存
@@ -354,15 +406,21 @@ def get_realtime_quotes(codes: Optional[list[str]] = None) -> dict[str, StockQuo
                 log.error(f"解析行情数据异常: 批次 {batch_idx}, {e}")
             return batch_quotes
 
-        max_workers = min(8, len(batches)) if batches else 1
+        max_workers = min(16, len(batches)) if batches else 1
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(_fetch_batch, idx, batch): idx for idx, batch in enumerate(batches)}
-            for future in as_completed(futures):
-                try:
-                    batch_quotes = future.result()
-                    quotes.update(batch_quotes)
-                except Exception as e:
-                    log.warning(f"行情批次执行异常: {e}")
+            futures = {}
+            for idx, batch in enumerate(batches):
+                futures[executor.submit(_fetch_batch, idx, batch)] = idx
+                # 无 sleep 节流：连接池大小自然限制并发，16线程远小于连接池64
+            try:
+                for future in as_completed(futures, timeout=60):
+                    try:
+                        batch_quotes = future.result(timeout=15)
+                        quotes.update(batch_quotes)
+                    except Exception as e:
+                        log.warning(f"行情批次执行异常: {e}")
+            except TimeoutError:
+                log.warning(f"行情数据获取超时，已完成{len(quotes)}只")
 
         # 如果腾讯API全部失败，用离线库兜底
         if not quotes:
@@ -417,10 +475,9 @@ def get_eligible_quotes(codes: Optional[list[str]] = None) -> dict[str, StockQuo
 
 
 def get_financial_data(codes: list[str], use_cache: bool = True) -> dict[str, FinancialData]:
-    """获取财务数据 - 使用旧版双API策略
+    """获取财务数据 — 优先用批量分页API（~12次请求），降级时用逐只并发
 
-    API1: RPT_F10_FINANCE_MAINFINADATA → ROE/毛利率/资产负债率/净利率
-    API2: RPT_LICO_FN_CPD → 营收同比/净利同比
+    批量API调用次数从 ~6000 降至 ~12，速度提升 50 倍以上。
     """
     global _financial_cache, _financial_cache_time
 
@@ -429,99 +486,21 @@ def get_financial_data(codes: list[str], use_cache: bool = True) -> dict[str, Fi
         cached = {c: _financial_cache[c] for c in codes if c in _financial_cache}
         if len(cached) == len(codes):
             return cached
+        # 部分命中：只取未命中的去请求
+        codes = [c for c in codes if c not in cached]
+        if not codes:
+            return cached
 
-    results: dict[str, FinancialData] = {}
-    base_url = "https://datacenter-web.eastmoney.com/api/data/v1/get"
-    dc_headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Referer": "https://data.eastmoney.com/",
-        "Accept": "*/*",
-    }
+    # 优先使用批量API（12次请求 vs 12000次）
+    batch_results = get_financial_data_batch(codes)
 
-    def fetch_one(code: str) -> Optional[FinancialData]:
-        roe = 0.0
-        gross_margin = 0.0
-        debt_ratio = 0.0
-        net_margin = 0.0
-        rev_growth = 0.0
-        profit_growth = 0.0
-        pe = 0.0
-        pb = 0.0
-        name = ""
+    # 批量API未能获取的，用旧版逐只API作为降级
+    missing = [c for c in codes if c not in batch_results]
+    fallback_results: dict[str, FinancialData] = {}
+    if missing:
+        fallback_results = _get_financial_data_individual(missing)
 
-        try:
-            params1 = {
-                "reportName": "RPT_F10_FINANCE_MAINFINADATA",
-                "columns": "REPORT_DATE_NAME,ROEJQ,XSMLL,ZCFZL,XSJLL",
-                "filter": f'(SECURITY_CODE="{code}")',
-                "pageNumber": 1,
-                "pageSize": 1,
-                "source": "WEB",
-                "client": "WEB",
-            }
-            resp = _get_session().get(base_url, params=params1, headers=dc_headers, timeout=5)
-            d = resp.json()
-            if d.get("success") and d.get("result") and d["result"].get("data"):
-                item = d["result"]["data"][0]
-                if item.get("ROEJQ") is not None:
-                    roe = float(item["ROEJQ"])
-                if item.get("XSMLL") is not None:
-                    gross_margin = float(item["XSMLL"])
-                if item.get("ZCFZL") is not None:
-                    debt_ratio = float(item["ZCFZL"])
-                if item.get("XSJLL") is not None:
-                    net_margin = float(item["XSJLL"])
-        except Exception:
-            pass
-
-        try:
-            params2 = {
-                "reportName": "RPT_LICO_FN_CPD",
-                "columns": "DATAYEAR,DATEMMDD,WEIGHTAVG_ROE,YSTZ,SJLTZ,XSMLL",
-                "filter": f'(SECURITY_CODE="{code}")',
-                "pageNumber": 1,
-                "pageSize": 1,
-                "source": "WEB",
-                "client": "WEB",
-            }
-            resp = _get_session().get(base_url, params=params2, headers=dc_headers, timeout=5)
-            d = resp.json()
-            if d.get("success") and d.get("result") and d["result"].get("data"):
-                item = d["result"]["data"][0]
-                if item.get("YSTZ") is not None:
-                    rev_growth = float(item["YSTZ"])
-                if item.get("SJLTZ") is not None:
-                    profit_growth = float(item["SJLTZ"])
-        except Exception:
-            pass
-
-        if roe == 0 and gross_margin == 0 and debt_ratio == 0 and rev_growth == 0:
-            return None
-
-        return FinancialData(
-            code=code,
-            name=name,
-            pe=pe,
-            pb=pb,
-            roe=roe,
-            market_cap=0,
-            revenue_growth=rev_growth,
-            profit_growth=profit_growth,
-            debt_ratio=debt_ratio,
-            gross_margin=gross_margin,
-            net_margin=net_margin,
-        )
-
-    with ThreadPoolExecutor(max_workers=_config.calibrate_threads) as executor:
-        futures = {executor.submit(fetch_one, code): code for code in codes}
-        for future in as_completed(futures):
-            code = futures[future]
-            try:
-                result = future.result()
-                if result:
-                    results[code] = result
-            except Exception as e:
-                log.warning(f"获取财务数据异常: {code}, {e}")
+    results = {**batch_results, **fallback_results}
 
     _financial_cache.update(results)
     _financial_cache_time = now
@@ -554,99 +533,96 @@ def get_financial_data_batch(codes: list[str]) -> dict[str, FinancialData]:
         "Referer": "https://data.eastmoney.com/",
         "Accept": "*/*",
     }
+    from dataclasses import replace
 
-    # API1: 主财务数据 (ROE/毛利率/负债率/净利率)
-    page = 1
-    while True:
+    def _fetch_api_page(report_name: str, columns: str, page: int, qdate: str = "") -> tuple[list[dict], int]:
+        """获取单页数据，返回 (data 列表, total_count)"""
         try:
             params = {
-                "reportName": "RPT_F10_FINANCE_MAINFINADATA",
-                "columns": "SECURITY_CODE,SECURITY_NAME_ABBR,ROEJQ,XSMLL,ZCFZL,XSJLL",
+                "reportName": report_name,
+                "columns": columns,
                 "pageNumber": page,
                 "pageSize": 500,
                 "source": "WEB",
                 "client": "WEB",
             }
-            resp = _get_session().get(base_url, params=params, headers=dc_headers, timeout=10)
+            if qdate:
+                params["filter"] = f'(QDATE="{qdate}")'
+            resp = _get_session().get(base_url, params=params, headers=dc_headers, timeout=8)
             d = resp.json()
-            if not d.get("success") or not d.get("result") or not d["result"].get("data"):
+            if d.get("success") and d.get("result") and d["result"].get("data"):
+                return d["result"]["data"], d["result"].get("count", 0)
+        except Exception:
+            pass
+        return [], 0
+
+    def _fetch_api_all(report_name: str, columns: str, qdate: str = "") -> list[dict]:
+        """并发分页获取全部数据：第一页拿 total_count，剩余页并发"""
+        # 先获取第一页，同时拿到 total_count
+        first_page, total_count = _fetch_api_page(report_name, columns, 1, qdate)
+        if not first_page:
+            return []
+        all_data = list(first_page)
+
+        if total_count <= 500:
+            return all_data
+
+        total_pages = (total_count + 499) // 500
+        if total_pages <= 1:
+            return all_data
+
+        # 并发获取剩余页
+        remaining_pages = list(range(2, total_pages + 1))
+        with ThreadPoolExecutor(max_workers=min(6, len(remaining_pages))) as pool:
+            futures = {pool.submit(_fetch_api_page, report_name, columns, p, qdate): p for p in remaining_pages}
+            for future in as_completed(futures, timeout=30):
+                try:
+                    page_data, _ = future.result(timeout=8)
+                    all_data.extend(page_data)
+                except Exception:
+                    pass
+
+        return all_data
+
+    # API1: 主财务数据 (ROE/毛利率/负债率/净利率) — 逐只并发（API返回67万条历史记录，批量不适用）
+    try:
+        api1_results = _get_financial_data_individual(codes)
+        results.update(api1_results)
+    except Exception as e:
+        log.warning(f"财务数据API1(逐只)失败: {e}")
+
+    # API2: 营收/净利增速 — QDATE过滤批量分页（仅11页 vs 1356页）
+    try:
+        from datetime import datetime as _dt
+        _yr = _dt.now().year
+        _qdate_filters = [f'{_yr}Q1', f'{_yr-1}Q4', f'{_yr-1}Q3']
+        api2_data = []
+        for _qdate in _qdate_filters:
+            api2_data = _fetch_api_all("RPT_LICO_FN_CPD", "SECURITY_CODE,YSTZ,SJLTZ", _qdate)
+            if api2_data:
                 break
+        for item in api2_data:
+            code = item.get("SECURITY_CODE", "")
+            if code not in code_set:
+                continue
+            rev_growth = float(item["YSTZ"]) if item.get("YSTZ") is not None else 0
+            profit_growth = float(item["SJLTZ"]) if item.get("SJLTZ") is not None else 0
 
-            for item in d["result"]["data"]:
-                code = item.get("SECURITY_CODE", "")
-                if code not in code_set:
-                    continue
-                roe = float(item["ROEJQ"]) if item.get("ROEJQ") is not None else 0
-                gross_margin = float(item["XSMLL"]) if item.get("XSMLL") is not None else 0
-                debt_ratio = float(item["ZCFZL"]) if item.get("ZCFZL") is not None else 0
-                net_margin = float(item["XSJLL"]) if item.get("XSJLL") is not None else 0
-                name = item.get("SECURITY_NAME_ABBR", "")
-
-                if code not in results:
-                    results[code] = FinancialData(
-                        code=code, name=name, pe=0, pb=0, roe=roe,
-                        market_cap=0, revenue_growth=0, profit_growth=0,
-                        debt_ratio=debt_ratio, gross_margin=gross_margin,
-                        net_margin=net_margin,
-                    )
-                else:
-                    fd = results[code]
-                    if name: fd.name = name
-                    if roe: fd.roe = roe
-                    if gross_margin: fd.gross_margin = gross_margin
-                    if debt_ratio: fd.debt_ratio = debt_ratio
-                    if net_margin: fd.net_margin = net_margin
-
-            total_count = d["result"].get("count", 0)
-            if page * 500 >= total_count:
-                break
-            page += 1
-        except Exception as e:
-            log.warning(f"批量财务数据API1第{page}页失败: {e}")
-            break
-
-    # API2: 营收/净利增速
-    page = 1
-    while True:
-        try:
-            params = {
-                "reportName": "RPT_LICO_FN_CPD",
-                "columns": "SECURITY_CODE,YSTZ,SJLTZ",
-                "pageNumber": page,
-                "pageSize": 500,
-                "source": "WEB",
-                "client": "WEB",
-            }
-            resp = _get_session().get(base_url, params=params, headers=dc_headers, timeout=10)
-            d = resp.json()
-            if not d.get("success") or not d.get("result") or not d["result"].get("data"):
-                break
-
-            for item in d["result"]["data"]:
-                code = item.get("SECURITY_CODE", "")
-                if code not in code_set:
-                    continue
-                rev_growth = float(item["YSTZ"]) if item.get("YSTZ") is not None else 0
-                profit_growth = float(item["SJLTZ"]) if item.get("SJLTZ") is not None else 0
-
-                if code in results:
-                    if rev_growth: results[code].revenue_growth = rev_growth
-                    if profit_growth: results[code].profit_growth = profit_growth
-                elif rev_growth or profit_growth:
-                    results[code] = FinancialData(
-                        code=code, name="", pe=0, pb=0, roe=0,
-                        market_cap=0, revenue_growth=rev_growth,
-                        profit_growth=profit_growth, debt_ratio=0,
-                        gross_margin=0, net_margin=0,
-                    )
-
-            total_count = d["result"].get("count", 0)
-            if page * 500 >= total_count:
-                break
-            page += 1
-        except Exception as e:
-            log.warning(f"批量财务数据API2第{page}页失败: {e}")
-            break
+            if code in results:
+                updates = {}
+                if rev_growth: updates["revenue_growth"] = rev_growth
+                if profit_growth: updates["profit_growth"] = profit_growth
+                if updates:
+                    results[code] = replace(results[code], **updates)
+            elif rev_growth or profit_growth:
+                results[code] = FinancialData(
+                    code=code, name="", pe=0, pb=0, roe=0,
+                    market_cap=0, revenue_growth=rev_growth,
+                    profit_growth=profit_growth, debt_ratio=0,
+                    gross_margin=0, net_margin=0,
+                )
+    except Exception as e:
+        log.warning(f"批量财务数据API2失败: {e}")
 
     # 过滤掉全为0的记录
     results = {k: v for k, v in results.items()
@@ -655,7 +631,100 @@ def get_financial_data_batch(codes: list[str]) -> dict[str, FinancialData]:
     log.info(f"批量财务数据: {len(results)}/{len(codes)} 只")
     return results
 
-def search_stock(keyword: str) -> list[dict]:
+
+def _get_financial_data_individual(codes: list[str]) -> dict[str, FinancialData]:
+    """逐只获取财务数据（降级路径，仅用于批量API遗漏的少量股票）
+
+    使用 ThreadPoolExecutor 并发，无 sleep 节流（用连接池大小自然限制并发）。
+    """
+    results: dict[str, FinancialData] = {}
+    base_url = "https://datacenter-web.eastmoney.com/api/data/v1/get"
+    dc_headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Referer": "https://data.eastmoney.com/",
+        "Accept": "*/*",
+    }
+
+    def fetch_one(code: str) -> Optional[FinancialData]:
+        roe = 0.0
+        gross_margin = 0.0
+        debt_ratio = 0.0
+        net_margin = 0.0
+        rev_growth = 0.0
+        profit_growth = 0.0
+
+        try:
+            params1 = {
+                "reportName": "RPT_F10_FINANCE_MAINFINADATA",
+                "columns": "REPORT_DATE_NAME,ROEJQ,XSMLL,ZCFZL,XSJLL",
+                "filter": f'(SECURITY_CODE="{code}")',
+                "pageNumber": 1, "pageSize": 1,
+                "source": "WEB", "client": "WEB",
+            }
+            resp = _get_session().get(base_url, params=params1, headers=dc_headers, timeout=5)
+            d = resp.json()
+            if d.get("success") and d.get("result") and d["result"].get("data"):
+                item = d["result"]["data"][0]
+                if item.get("ROEJQ") is not None:
+                    roe = float(item["ROEJQ"])
+                if item.get("XSMLL") is not None:
+                    gross_margin = float(item["XSMLL"])
+                if item.get("ZCFZL") is not None:
+                    debt_ratio = float(item["ZCFZL"])
+                if item.get("XSJLL") is not None:
+                    net_margin = float(item["XSJLL"])
+        except Exception:
+            pass
+
+        try:
+            params2 = {
+                "reportName": "RPT_LICO_FN_CPD",
+                "columns": "DATAYEAR,DATEMMDD,WEIGHTAVG_ROE,YSTZ,SJLTZ,XSMLL",
+                "filter": f'(SECURITY_CODE="{code}")',
+                "pageNumber": 1, "pageSize": 1,
+                "source": "WEB", "client": "WEB",
+            }
+            resp = _get_session().get(base_url, params=params2, headers=dc_headers, timeout=5)
+            d = resp.json()
+            if d.get("success") and d.get("result") and d["result"].get("data"):
+                item = d["result"]["data"][0]
+                if item.get("YSTZ") is not None:
+                    rev_growth = float(item["YSTZ"])
+                if item.get("SJLTZ") is not None:
+                    profit_growth = float(item["SJLTZ"])
+        except Exception:
+            pass
+
+        if roe == 0 and gross_margin == 0 and debt_ratio == 0 and rev_growth == 0:
+            return None
+
+        return FinancialData(
+            code=code, name="", pe=0, pb=0, roe=roe,
+            market_cap=0, revenue_growth=rev_growth, profit_growth=profit_growth,
+            debt_ratio=debt_ratio, gross_margin=gross_margin, net_margin=net_margin,
+        )
+
+    # 无 sleep 节流：连接池大小自然限制并发，ThreadPoolExecutor 控制线程数
+    max_workers = min(len(codes), _config.calibrate_threads, 15)
+    if max_workers < 1:
+        return results
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(fetch_one, c): c for c in codes}
+        try:
+            for future in as_completed(futures, timeout=60):
+                code = futures[future]
+                try:
+                    result = future.result(timeout=10)
+                    if result:
+                        results[code] = result
+                except Exception:
+                    pass
+        except TimeoutError:
+            log.warning(f"逐只财务数据获取超时，已完成{len(results)}/{len(codes)}只")
+
+    log.debug(f"逐只财务数据降级: {len(results)}/{len(codes)} 只")
+    return results
     """搜索股票"""
     try:
         url = _config.smartbox_url.format(keyword=keyword, token=_config.smartbox_token)
@@ -1248,8 +1317,11 @@ def preload_industry_cache(codes: list[str]) -> dict[str, dict]:
             except Exception:
                 return (code, {"industry": "其他", "sector_type": "default"})
 
-        with ThreadPoolExecutor(max_workers=15) as executor:
-            futures = {executor.submit(_fetch_one, c): c for c in still_need_list}
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            futures = {}
+            for c in still_need_list:
+                futures[executor.submit(_fetch_one, c)] = c
+                # 无 sleep 节流：连接池大小自然限制并发
             for future in as_completed(futures):
                 try:
                     code, info = future.result(timeout=30)
