@@ -7,268 +7,91 @@
     <meta http-equiv="Expires" content="0">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>短线强势股</title>
+    <link rel="stylesheet" href="/static/design-system.css">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
-            background: #12121a;
-            color: #d8d8e0;
-            min-height: 100vh;
-            line-height: 1.6;
-            font-size: 14px;
-            -webkit-font-smoothing: antialiased;
-        }
-
-        /* 顶栏 */
-        .navbar {
-            position: sticky; top: 0; z-index: 100;
-            background: #18182a;
-            border-bottom: 1px solid #2a2a3a;
-            padding: 0 28px;
-            height: 52px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-        .nav-brand {
-            display: flex; align-items: center; gap: 10px;
-            font-weight: 600; font-size: 15px; color: #fff;
-            letter-spacing: 0.5px;
-        }
-        .nav-logo {
-            width: 28px; height: 28px;
-            background: #d4a017;
-            border-radius: 4px;
-            display: flex; align-items: center; justify-content: center;
-            font-size: 14px; font-weight: 700; color: #fff;
-        }
-        .nav-links { display: flex; gap: 4px; }
-        .nav-link {
-            color: #8888aa; text-decoration: none; font-size: 14px;
-            padding: 6px 14px; border-radius: 4px; transition: all 0.15s;
-        }
-        .nav-link:hover { color: #ccc; background: rgba(255,255,255,0.05); }
-        .nav-link.active { color: #d4a017; font-weight: 600; background: rgba(212,160,23,0.1); }
-        .nav-time { color: #666; font-size: 13px; font-variant-numeric: tabular-nums; }
-
-        .container { max-width: 1400px; margin: 0 auto; padding: 24px 28px; }
-
-        /* 页头 */
-        .page-header {
-            display: flex; align-items: center; justify-content: space-between;
-            margin-bottom: 20px; padding-bottom: 16px;
-            border-bottom: 1px solid #2a2a3a;
-        }
-        .page-header h1 { font-size: 20px; font-weight: 700; color: #fff; letter-spacing: 1px; }
-        .page-header .sub { font-size: 13px; color: #777; margin-top: 3px; letter-spacing: 0.5px; }
-        .actions { display: flex; gap: 10px; align-items: center; }
-        .btn {
-            padding: 8px 18px; border-radius: 6px; font-weight: 600;
-            font-size: 14px; cursor: pointer; border: none;
-            transition: all 0.15s; font-family: inherit;
-        }
-        .btn-primary { background: #d4a017; color: #fff; }
-        .btn-primary:hover { background: #b8860b; }
-        .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
-        .btn-ghost { background: transparent; border: 1px solid #3a3a4a; color: #999; }
-        .btn-ghost:hover { border-color: #555; color: #ddd; }
-
-        /* 涨停回调企稳策略条 */
-        .pullback-bar {
-            background: #18182a;
-            border: 1px solid #2a2a3a;
-            border-left: 3px solid #d4a017;
-            border-radius: 6px;
-            padding: 14px 20px;
-            margin-bottom: 16px;
-            display: flex; align-items: center; gap: 28px;
-        }
-        .pullback-bar .title {
-            font-size: 14px; font-weight: 700; color: #d4a017;
-            white-space: nowrap;
-        }
-        .pullback-bar .steps {
-            display: flex; gap: 24px; flex-wrap: wrap;
-        }
-        .pullback-bar .step {
-            font-size: 13px; color: #aaa;
-            display: flex; align-items: flex-start; gap: 8px;
-        }
-        .pullback-bar .step .num {
-            display: inline-block; min-width: 20px; height: 20px;
-            background: #d4a017; border-radius: 3px; color: #fff;
-            font-size: 12px; font-weight: 600; text-align: center; line-height: 20px;
-            flex-shrink: 0;
-        }
-
-        /* 筛选条件 */
-        .filter-bar {
-            display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap;
-        }
-        .filter-tag {
-            padding: 5px 12px;
-            background: #18182a;
-            border: 1px solid #2a2a3a;
-            border-radius: 4px;
-            font-size: 13px; color: #888;
-        }
-        .filter-tag b { color: #ccc; font-weight: 600; }
+        /* ===== 页面特有样式（共享 token/组件由 design-system.css 提供） ===== */
 
         /* 统计行 */
-        .stats-row {
-            display: grid; grid-template-columns: repeat(5, 1fr);
-            gap: 10px; margin-bottom: 20px;
-        }
+        .stats-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 16px; }
         .stat-box {
-            background: #18182a;
-            border: 1px solid #2a2a3a;
-            border-radius: 6px;
-            padding: 14px 16px;
+            background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+            padding: 12px 15px; position: relative; overflow: hidden;
         }
-        .stat-box .val { font-size: 24px; font-weight: 700; color: #d4a017; }
-        .stat-box .val.green { color: #2d9e5f; }
-        .stat-box .val.gold { color: #cd7f32; }
-        .stat-box .lbl { font-size: 13px; color: #777; margin-top: 2px; }
+        .stat-box::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--border-2); }
+        .stat-box.accent::before { background: var(--accent); }
+        .stat-box .val { font-size: 23px; font-weight: 800; color: var(--text); font-family: var(--mono); font-variant-numeric: tabular-nums; line-height: 1.2; }
+        .stat-box .val.gold { color: var(--accent); }
+        .stat-box .val.green { color: var(--down); }
+        .stat-box .lbl { font-size: 12px; color: var(--text-3); margin-top: 3px; }
 
-        /* 股票面板 */
-        .stock-panel {
-            background: #15152a;
-            border: 1px solid #2a2a3a;
-            border-radius: 6px;
-            overflow: hidden;
-        }
-        .panel-header {
-            display: flex; justify-content: space-between; align-items: center;
-            padding: 12px 16px;
-            border-bottom: 1px solid #2a2a3a;
-            background: #18182a;
-        }
-        .panel-header h3 { font-size: 14px; font-weight: 600; color: #aaa; letter-spacing: 0.5px; }
-        .panel-header .time { font-size: 13px; color: #666; }
-
-        .stock-table { width: 100%; border-collapse: collapse; }
-        .stock-table th {
-            background: #12122a; padding: 10px 12px; text-align: left;
-            font-size: 13px; font-weight: 600; color: #888;
-            border-bottom: 1px solid #2a2a3a;
+        /* 股票表格 */
+        .stock-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: visible; }
+        .panel-header { display: flex; justify-content: space-between; align-items: center; padding: 11px 16px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
+        .panel-header h3 { font-size: 13px; font-weight: 700; color: var(--text-2); letter-spacing: .5px; }
+        .panel-header .time { font-size: 12px; color: var(--text-3); font-family: var(--mono); }
+        .table-wrap { display: block; overflow: visible; max-height: none; }
+        .stock-table { width: 100%; border-spacing: 0; font-variant-numeric: tabular-nums; }
+        .stock-table thead th {
+            position: sticky; top: calc(var(--nav-h) - 1px); z-index: 5;
+            background: var(--surface-2); padding: 10px 12px; text-align: right;
+            font-size: 12px; font-weight: 600; color: var(--text-3);
+            border-bottom: 1px solid var(--border-2);
+            box-shadow: 0 3px 8px rgba(0,0,0,0.5);
             white-space: nowrap;
         }
+        .stock-table thead th:first-child,
+        .stock-table thead th:nth-child(2),
+        .stock-table thead th:nth-child(12) { text-align: left; }
+        .stock-table thead th[onclick]:hover { color: var(--text); }
+        .stock-table thead th[onclick] { transition: color .12s; }
         .stock-table td {
-            padding: 10px 12px; border-bottom: 1px solid #1e1e30;
-            font-size: 14px; vertical-align: middle;
-            font-variant-numeric: tabular-nums;
+            padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.045);
+            font-size: 13px; text-align: right; white-space: nowrap; font-family: var(--mono);
         }
-        .stock-table tr:hover { background: rgba(231,76,60,0.05); }
+        .stock-table tbody tr:hover { background: rgba(231,178,58,0.05); }
+        .stock-table tbody tr:last-child td { border-bottom: none; }
+        .stock-link { text-decoration: none; color: inherit; display: block; text-align: left; }
+        .stock-link:hover .name-cell { color: var(--accent); }
+        .name-cell { font-weight: 700; color: var(--text); font-size: 13px; font-family: var(--sans); }
+        .code-cell { font-size: 11px; color: var(--text-3); margin-top: 1px; font-family: var(--mono); }
 
-        .stock-link {
-            text-decoration: none; color: inherit; display: block;
-        }
-        .stock-link:hover .name-cell { text-decoration: underline; }
-        .name-cell { font-weight: 600; color: #eee; font-size: 14px; }
-        .code-cell { font-size: 12px; color: #777; margin-top: 2px; }
+        .score-val { font-weight: 800; font-size: 14px; font-family: var(--mono); }
+        .score-high { color: var(--accent); }
+        .score-mid { color: #cd9a4a; }
+        .score-low { color: var(--text-3); }
 
-        .up { color: #cf4444; font-weight: 600; }
-        .down { color: #2d9e5f; }
-        .muted { color: #555; }
-        .hot { color: #8b5cf6; font-weight: 600; }
+        .skeleton-row td { padding: 10px 12px; }
 
-        /* 信号标签 */
-        .tag {
-            display: inline-block; padding: 2px 8px;
-            font-size: 12px; font-weight: 600; margin-right: 4px;
-            border-radius: 3px;
-        }
-        .tag-red { background: rgba(207,68,68,0.12); color: #cf4444; }
-        .tag-orange { background: rgba(205,127,50,0.12); color: #cd7f32; }
-        .tag-green { background: rgba(45,158,95,0.12); color: #2d9e5f; }
-        .tag-gray { background: rgba(255,255,255,0.06); color: #888; }
-
-        .pullback-tag {
-            display: inline-block; padding: 2px 8px;
-            font-size: 12px; font-weight: 700;
-            background: #d4a017; color: #fff; border-radius: 3px;
-        }
-
-        .score-val { font-weight: 700; font-size: 15px; }
-        .score-high { color: #d4a017; }
-        .score-mid { color: #cd7f32; }
-        .score-low { color: #666; }
-
-        .empty-state { text-align: center; padding: 60px 20px; }
-        .empty-state .icon { font-size: 40px; color: #2a2a3a; margin-bottom: 10px; font-weight: 700; }
-        .empty-state .title { font-size: 16px; color: #777; margin-bottom: 6px; }
-        .empty-state .desc { font-size: 14px; color: #555; }
-
-        .loading { text-align: center; padding: 60px 20px; }
-        .spinner {
-            width: 36px; height: 36px; margin: 0 auto 12px;
-            border: 3px solid #2a2a3a; border-top-color: #d4a017;
-            border-radius: 50%; animation: spin 0.7s linear infinite;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-
-        .footer-tip { text-align: center; padding: 20px; font-size: 13px; color: #444; }
-
-        /* 指标说明 */
-        .indicator-guide {
-            background: #18182a;
-            border: 1px solid #2a2a3a;
-            border-radius: 6px;
-            padding: 16px 20px;
-            margin-top: 16px;
-        }
-        .guide-title {
-            font-size: 14px;
-            font-weight: 700;
-            color: #d4a017;
-            margin-bottom: 12px;
-        }
-        .guide-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 8px;
-        }
-        .guide-item {
-            font-size: 13px;
-            color: #888;
-            line-height: 1.5;
-        }
-        .guide-item b { color: #ccc; font-weight: 600; }
-
-        @media (max-width: 768px) {
+        @media (max-width: 900px) {
             .container { padding: 16px; }
-            .navbar { padding: 0 16px; }
-            .stats-row { grid-template-columns: repeat(3, 1fr); }
-            .page-header { flex-direction: column; align-items: flex-start; gap: 10px; }
-            .pullback-bar { flex-direction: column; gap: 10px; }
-            .pullback-bar .steps { flex-direction: column; gap: 6px; }
-            .guide-grid { grid-template-columns: repeat(1, 1fr); }
+            .stats-row { grid-template-columns: repeat(2, 1fr); }
+            .table-wrap { max-height: none; }
+            .strategy-bar { gap: 8px; }
         }
     </style>
     <script src="/api/js/common.js"></script>
 </head>
 <body>
-    <div class="navbar">
-        <div class="nav-brand">
-            <div class="nav-logo">S</div>
+    <nav class="app-nav">
+        <div class="brand">
+            <div class="logo">势</div>
             <span>强势股</span>
         </div>
-        <div class="nav-links">
-            <a class="nav-link" href="/">首页</a>
-            <a class="nav-link" href="/daily_pick">中短线</a>
-            <a class="nav-link" href="/auction_compare">竞价</a>
-            <a class="nav-link active" href="/strong_pick">强势股</a>
-            <a class="nav-link" href="/wp2_pick">尾盘</a>
+        <div class="links">
+            <a class="link" href="/">首页</a>
+            <a class="link" href="/daily_pick">中短线</a>
+            <a class="link" href="/auction_compare">竞价</a>
+            <a class="link active" href="/strong_pick">强势股</a>
+            <a class="link" href="/wp2_pick">尾盘</a>
         </div>
         <div class="nav-time" id="navTime"></div>
-    </div>
+    </nav>
 
     <div class="container">
         <div class="page-header">
             <div>
-                <h1>短线强势股</h1>
-                <div class="sub">BREAKOUT / MOMENTUM / PULLBACK</div>
+                <h1>短线强势股 <span class="tag">实时扫描 · 全市场</span></h1>
+                <div class="sub">突破 / 动量 / 回调企稳 三因子共振筛选</div>
             </div>
             <div class="actions">
                 <button class="btn btn-primary" id="pickBtn" onclick="executePick()">执行筛选</button>
@@ -277,30 +100,27 @@
             </div>
         </div>
 
-        <!-- 涨停回调企稳策略 -->
-        <div class="pullback-bar">
-            <div class="title">涨停回调企稳</div>
-            <div class="steps">
-                <div class="step"><span class="num">1</span><div>近5日涨停，主力确认</div></div>
-                <div class="step"><span class="num">2</span><div>回调&lt;50%，越浅越强</div></div>
-                <div class="step"><span class="num">3</span><div>缩量企稳，量能&lt;涨停日80%</div></div>
-                <div class="step"><span class="num">4</span><div>二次放量上攻时介入</div></div>
-            </div>
+        <!-- 涨停回调企稳策略（一行精简） -->
+        <div class="strategy">
+            <span class="label">涨停回调企稳</span>
+            <span class="step">近5日<b>涨停</b>主力确认</span><span class="sep">→</span>
+            <span class="step">回调<b>&lt;50%</b></span><span class="sep">→</span>
+            <span class="step">缩量企稳 <b>&lt;涨停日80%</b></span><span class="sep">→</span>
+            <span class="step">二次放量<b>介入</b></span>
         </div>
 
         <!-- 筛选条件 -->
         <div class="filter-bar">
-            <div class="filter-tag"><b>突破</b> 接近20/60日高点</div>
-            <div class="filter-tag"><b>动量</b> 5日+3% 3日+2%</div>
-            <div class="filter-tag"><b>量能</b> 3日均>10日x1.3</div>
-            <div class="filter-tag"><b>趋势</b> 价>MA5>MA10</div>
-            <div class="filter-tag"><b>量质</b> 温和放量加分/极端放量扣分</div>
-            <div class="filter-tag"><b>涨停</b> 近20日涨停+回调企稳+15</div>
+            <div class="filter-tag"><b>突破</b> 近20/60日高点</div>
+            <div class="filter-tag"><b>动量</b> 5日+3% · 3日+2%</div>
+            <div class="filter-tag"><b>量能</b> 3日均&gt;10日×1.3</div>
+            <div class="filter-tag"><b>趋势</b> 价&gt;MA5&gt;MA10</div>
+            <div class="filter-tag"><b>涨停</b> 近20日涨停回调+15</div>
         </div>
 
         <!-- 统计 -->
         <div class="stats-row" id="statsRow">
-            <div class="stat-box">
+            <div class="stat-box accent">
                 <div class="val" id="totalCount">-</div>
                 <div class="lbl">强势股</div>
             </div>
@@ -328,34 +148,21 @@
                 <h3>筛选结果</h3>
                 <div class="time" id="pickTime"></div>
             </div>
-            <div id="stocksContent">
-                <div class="empty-state">
-                    <div class="icon">S</div>
-                    <div class="title">等待筛选</div>
-                    <div class="desc">点击「执行筛选」扫描全市场强势股</div>
+            <div class="table-wrap">
+                <div id="stocksContent">
+                    <div class="empty-state">
+                        <div class="icon">势</div>
+                        <div class="title">等待筛选</div>
+                        <div class="desc">点击「执行筛选」扫描全市场强势股</div>
+                    </div>
                 </div>
             </div>
         </div>
 
         <div class="footer-tip" id="updateTime"></div>
-
-        <!-- 指标说明 -->
-        <div class="indicator-guide">
-            <div class="guide-title">指标说明</div>
-            <div class="guide-grid">
-                <div class="guide-item"><b>布林位</b>：股价在布林带中的位置百分比，>80%表示接近上轨强势</div>
-                <div class="guide-item"><b>量比</b>：当日成交量与5日平均量的比值，1.5-3为温和放量最佳</div>
-                <div class="guide-item"><b>换手</b>：当日换手率，活跃股通常3%-10%</div>
-                <div class="guide-item"><b>RSI</b>：相对强弱指标，50-65为健康上涨区间，>75超买风险</div>
-                <div class="guide-item"><b>评分</b>：综合评分(技术60%+基本面40%)，>50可关注，>60优选</div>
-                <div class="guide-item"><b>信号</b>：金叉=MACD金叉，回调企稳=涨停后缩量企稳</div>
-                <div class="guide-item"><b>买入价</b>：建议买入参考价，基于布林带下轨支撑</div>
-                <div class="guide-item"><b>卖出价</b>：建议卖出参考价，基于布林带上轨阻力</div>
-                <div class="guide-item"><b>止损价</b>：止损参考价，跌破建议离场</div>
-            </div>
-        </div>
     </div>
 
+    <script src="/static/design-system.js"></script>
     <script>
         function updateTime() {
             const now = new Date();
@@ -364,14 +171,51 @@
         updateTime();
         setInterval(updateTime, 1000);
 
-        window.onload = function() { fetchStocks(); };
+        window.onload = function() { fetchStocks(true); };
 
-        async function fetchStocks() {
+        let _strongPollTimer = null;
+
+        function startStrongPoll(reason = '选股中') {
+            if (_strongPollTimer) clearInterval(_strongPollTimer);
+            showSkeleton(12);
+            document.getElementById('pickTime').textContent = '正在扫描全市场...';
+            let attempts = 0;
+            _strongPollTimer = setInterval(async () => {
+                attempts++;
+                if (attempts > 150) {
+                    clearInterval(_strongPollTimer);
+                    showToast('扫描仍在进行，请稍后点击刷新查看结果', 'warning');
+                    document.getElementById('pickBtn').disabled = false;
+                    document.getElementById('pickBtn').textContent = '执行筛选';
+                    return;
+                }
+                try {
+                    const resp = await fetch('/api/strong_pick?t=' + Date.now());
+                    const data = await resp.json();
+                    if (data.success && data.stocks && data.stocks.length > 0) {
+                        clearInterval(_strongPollTimer);
+                        renderStocks(data);
+                        showToast('强势股数据已更新', 'success');
+                        document.getElementById('pickBtn').disabled = false;
+                        document.getElementById('pickBtn').textContent = '执行筛选';
+                    }
+                } catch (e) {}
+            }, 2000);
+        }
+
+        async function fetchStocks(autoRunIfEmpty = false) {
             try {
                 const resp = await fetch('/api/strong_pick');
                 const data = await resp.json();
                 if (data.success && data.stocks && data.stocks.length > 0) {
+                    const today = new Date().toISOString().slice(0, 10);
+                    const isToday = data.date === today;
                     renderStocks(data);
+                    if (autoRunIfEmpty && !isToday) {
+                        executePick(true);
+                    }
+                } else if (autoRunIfEmpty) {
+                    executePick(true);
                 } else {
                     showEmpty();
                 }
@@ -381,85 +225,168 @@
             }
         }
 
-        async function executePick() {
+        async function executePick(silent = false) {
             const btn = document.getElementById('pickBtn');
             btn.disabled = true;
             btn.textContent = '筛选中...';
-
-            document.getElementById('stocksContent').innerHTML = '<div class="loading"><div class="spinner"></div><div>扫描全市场...</div></div>';
-
-            try {
-                const resp = await fetch('/api/strong_pick_execute');
-                const data = await resp.json();
-                if (data.success) {
-                    renderStocks(data);
-                    showToast('筛选完成，' + data.stocks.length + '只');
-                } else {
-                    showToast('筛选失败: ' + data.error);
-                    showEmpty();
-                }
-            } catch (e) {
-                showToast('请求失败');
-                showEmpty();
+            if (!silent) {
+                showSkeleton(12);
             }
 
-            btn.disabled = false;
-            btn.textContent = '执行筛选';
+            let startedPoll = false;
+            try {
+                const resp = await fetchWithCSRF('/api/strong_pick_execute', {
+                    method: 'POST',
+                });
+                const data = await resp.json();
+                if (data.success && data.stocks && data.stocks.length > 0) {
+                    renderStocks(data);
+                    if (!silent) showToast('选股已启动，数据已更新');
+                } else {
+                    startStrongPoll(silent ? '缓存过期，正在重新选股' : '正在选股');
+                    startedPoll = true;
+                }
+            } catch (e) {
+                showToast('请求异常，显示已有数据');
+                await fetchStocks(false);
+            } finally {
+                if (!startedPoll) {
+                    btn.disabled = false;
+                    btn.textContent = '执行筛选';
+                }
+            }
         }
 
         async function clearCache() {
             try {
-                await fetch('/api/strong_pick_clear');
+                await fetchWithCSRF('/api/strong_pick_clear', {
+                    method: 'DELETE',
+                });
                 showToast('缓存已清除');
                 showEmpty();
             } catch (e) { showToast('清除失败'); }
         }
 
-        function renderStocks(data) {
-            const stocks = data.stocks || [];
+        let _lastData = null;
+        let _sort = { key: null, dir: -1 };
+        let _priceCache = null;
+        let _refreshTimer = null;
 
-            document.getElementById('totalCount').textContent = stocks.length;
+        const _COLUMNS = [
+            { k: null,    label: '#' },
+            { k: 'name',  label: '股票', left: true },
+            { k: 'price', label: '股价' },
+            { k: 'change_pct', label: '今涨' },
+            { k: 'change_5d',  label: '5日' },
+            { k: 'breakthrough_pct', label: '突破' },
+            { k: 'position_pct', label: '布林位' },
+            { k: 'volume_ratio', label: '量比' },
+            { k: 'turnover_rate', label: '换手' },
+            { k: 'rsi', label: 'RSI' },
+            { k: 'score', label: '评分' },
+            { k: null, label: '信号', left: true },
+            { k: null, label: '买入价' },
+            { k: null, label: '卖出价' },
+            { k: null, label: '止损价' },
+        ];
+
+        function buildHeadHtml() {
+            let head = '<tr>';
+            for (const c of _COLUMNS) {
+                if (c.k) {
+                    const active = _sort.key === c.k;
+                    const arrow = active ? (_sort.dir === 1 ? ' ▲' : ' ▼') : '';
+                    const style = 'cursor:pointer;user-select:none;'
+                        + (active ? 'color:var(--accent);' : '')
+                        + (c.left ? 'text-align:left;' : '');
+                    head += `<th onclick="sortBy('${c.k}')" style="${style}" aria-sort="${active ? (_sort.dir === 1 ? 'ascending' : 'descending') : 'none'}">${c.label}${arrow}</th>`;
+                } else {
+                    head += `<th${c.left ? ' style="text-align:left;"' : ''}>${c.label}</th>`;
+                }
+            }
+            head += '</tr>';
+            return head;
+        }
+
+        function sortBy(key) {
+            if (_sort.key === key) _sort.dir *= -1;
+            else { _sort.key = key; _sort.dir = (key === 'name') ? 1 : -1; }
+            if (_lastData) renderStocks(_lastData);
+        }
+
+        function showSkeleton(n = 12) {
+            const widths = [20, 96, 56, 48, 48, 48, 48, 48, 48, 44, 36, 120, 56, 56, 56];
+            let rows = '';
+            for (let i = 0; i < n; i++) {
+                rows += '<tr class="skeleton-row">';
+                for (const w of widths) rows += `<td><div class="sk-bar" style="width:${w}px"></div></td>`;
+                rows += '</tr>';
+            }
+            document.getElementById('stocksContent').innerHTML =
+                '<table class="stock-table"><thead>' + buildHeadHtml() + '</thead><tbody>' + rows + '</tbody></table>';
+        }
+
+        function renderStocks(data) {
+            _lastData = data;
+            let stocks = (data.stocks || []).slice();
+
+            if (_sort.key) {
+                const key = _sort.key, dir = _sort.dir;
+                stocks.sort((a, b) => {
+                    if (key === 'name') return a.name.localeCompare(b.name, 'zh') * dir;
+                    const va = (a[key] == null ? -Infinity : a[key]);
+                    const vb = (b[key] == null ? -Infinity : b[key]);
+                    return (va - vb) * dir;
+                });
+            }
 
             const avgChange = stocks.length > 0
                 ? (stocks.reduce((s, x) => s + x.change_pct, 0) / stocks.length).toFixed(2)
-                : '-';
-            document.getElementById('avgChange').textContent = avgChange + '%';
-
+                : 0;
             const avgScore = stocks.length > 0
                 ? (stocks.reduce((s, x) => s + x.score, 0) / stocks.length).toFixed(1)
-                : '-';
-            document.getElementById('avgScore').textContent = avgScore;
-
+                : 0;
             const gcCount = stocks.filter(s => s.golden_cross).length;
-            document.getElementById('goldenCrossCount').textContent = gcCount;
-
             const pbCount = stocks.filter(s => s.pullback_stable).length;
-            document.getElementById('pullbackCount').textContent = pbCount;
+
+            if (window.FX) {
+                FX.countUp(document.getElementById('totalCount'), stocks.length);
+                FX.countUp(document.getElementById('avgChange'), parseFloat(avgChange) || 0, {suffix: '%', decimals: 2});
+                FX.countUp(document.getElementById('avgScore'), parseFloat(avgScore) || 0, {decimals: 1});
+                FX.countUp(document.getElementById('goldenCrossCount'), gcCount);
+                FX.countUp(document.getElementById('pullbackCount'), pbCount);
+            } else {
+                document.getElementById('totalCount').textContent = stocks.length;
+                document.getElementById('avgChange').textContent = (avgChange || 0) + '%';
+                document.getElementById('avgScore').textContent = avgScore || 0;
+                document.getElementById('goldenCrossCount').textContent = gcCount;
+                document.getElementById('pullbackCount').textContent = pbCount;
+            }
 
             document.getElementById('pickTime').textContent = data.pick_time ? '筛选时间 ' + data.pick_time : '';
             document.getElementById('updateTime').textContent = data.last_update ? '更新于 ' + data.last_update : '';
 
-            let html = '<table class="stock-table"><thead><tr><th>#</th><th>股票</th><th>今涨</th><th>5日</th><th>突破</th><th>布林位</th><th>量比</th><th>换手</th><th>RSI</th><th>评分</th><th>信号</th><th>买入价</th><th>卖出价</th><th>止损价</th></tr></thead><tbody>';
+            let html = '<table class="stock-table"><thead>' + buildHeadHtml() + '</thead><tbody>';
 
             for (let i = 0; i < stocks.length; i++) {
                 const s = stocks[i];
                 const sc = s.score >= 70 ? 'score-high' : s.score >= 50 ? 'score-mid' : 'score-low';
 
                 let tags = '';
-                if (s.pullback_stable) tags += '<span class="pullback-tag">回调企稳</span> ';
-                if (s.has_limit_up && !s.pullback_stable) tags += '<span class="tag tag-red">涨停</span>';
-                if (s.breakthrough_pct >= 0) tags += '<span class="tag tag-orange">突破</span>';
-                if (s.golden_cross) tags += '<span class="tag tag-orange">金叉</span>';
-                if (s.gentle_volume) tags += '<span class="tag tag-green">温和放量</span>';
-                if (s.moderate_volume) tags += '<span class="tag tag-orange">明显放量</span>';
-                if (s.extreme_volume) tags += '<span class="tag tag-gray">极端放量</span>';
-                if (s.change_5d >= 10) tags += '<span class="tag tag-red">强势</span>';
-                if ((s.position_pct >= 90 && s.change_pct >= 7) || s.change_pct >= 9) tags += '<span class="tag tag-gray">追高风险</span>';
+                if (s.pullback_stable) tags += '<span class="sig sig-pullback">回调企稳</span> ';
+                if (s.has_limit_up && !s.pullback_stable) tags += '<span class="sig sig-limit">涨停</span>';
+                if (s.breakthrough_pct >= 0) tags += '<span class="sig sig-break">突破</span>';
+                if (s.golden_cross) tags += '<span class="sig sig-cross">金叉</span>';
+                if (s.gentle_volume) tags += '<span class="sig sig-gentle">温和放量</span>';
+                if (s.moderate_volume) tags += '<span class="sig sig-moderate">明显放量</span>';
+                if (s.extreme_volume) tags += '<span class="sig sig-extreme">极端放量</span>';
+                if (s.change_5d >= 10) tags += '<span class="sig sig-strong">强势</span>';
+                if ((s.position_pct >= 90 && s.change_pct >= 7) || s.change_pct >= 9) tags += '<span class="sig sig-risk">追高风险</span>';
 
                 let rsiStyle = '';
                 if (s.rsi != null) {
-                    if (s.rsi > 75) rsiStyle = 'color:#cf4444;';
-                    else if (s.rsi >= 60) rsiStyle = 'color:#cd7f32;';
+                    if (s.rsi > 75) rsiStyle = 'color:var(--up);';
+                    else if (s.rsi >= 60) rsiStyle = 'color:#cd9a4a;';
                 }
 
                 let mkt = s.code.startsWith('6') ? 'sh' : 'sz';
@@ -470,8 +397,9 @@
                 let industryHtml = s.industry ? ' · ' + s.industry : '';
 
                 html += '<tr>';
-                html += '<td style="font-weight:700;color:#d4a017;">' + (i+1) + '</td>';
+                html += '<td style="color:var(--accent);font-weight:700;">' + (i+1) + '</td>';
                 html += '<td><a href="' + url + '" target="_blank" rel="noopener" class="stock-link"><div class="name-cell">' + s.name + '</div><div class="code-cell">' + s.code + industryHtml + '</div></a></td>';
+                html += '<td class="' + chgClass + '" data-col="price" data-val="' + (s.price || '0') + '" data-code="' + s.code + '">' + (s.price != null && s.price !== 0 ? s.price.toFixed(2) : '-') + '</td>';
                 html += '<td class="' + chgClass + '">' + s.change_pct + '%</td>';
                 html += '<td class="' + chg5dClass + '">' + s.change_5d + '%</td>';
                 html += '<td>' + btHtml + '</td>';
@@ -480,7 +408,7 @@
                 html += '<td>' + (s.turnover_rate ? s.turnover_rate + '%' : '-') + '</td>';
                 html += '<td style="' + rsiStyle + '">' + (s.rsi != null ? s.rsi : '-') + '</td>';
                 html += '<td><span class="score-val ' + sc + '">' + s.score + '</span></td>';
-                html += '<td>' + (tags || '<span class="muted">-</span>') + '</td>';
+                html += '<td style="text-align:left;">' + (tags || '<span class="muted">-</span>') + '</td>';
                 html += '<td>' + (s.buy_sell ? s.buy_sell.buy.toFixed(2) : '-') + '</td>';
                 html += '<td>' + (s.buy_sell ? s.buy_sell.sell.toFixed(2) : '-') + '</td>';
                 html += '<td>' + (s.buy_sell ? s.buy_sell.stop_loss.toFixed(2) : '-') + '</td>';
@@ -489,10 +417,37 @@
 
             html += '</tbody></table>';
             document.getElementById('stocksContent').innerHTML = html;
+
+            // 实时价格跳动闪烁
+            if (window.FX && _priceCache) {
+                document.querySelectorAll('#stocksContent td[data-col="price"]').forEach(function(td) {
+                    var c = td.dataset.code;
+                    if (c && _priceCache[c] != null && _priceCache[c] !== td.dataset.val) {
+                        FX.flash(td, parseFloat(td.dataset.val) > parseFloat(_priceCache[c]) ? 1 : -1);
+                    }
+                    _priceCache[c] = td.dataset.val;
+                });
+            } else if (window.FX) {
+                _priceCache = {};
+                document.querySelectorAll('#stocksContent td[data-col="price"]').forEach(function(td) {
+                    _priceCache[td.dataset.code] = td.dataset.val;
+                });
+            }
+
+            // 自动刷新（首次渲染后每 30 秒拉一次实时行情，价格变化会闪烁）
+            if (!_refreshTimer && stocks.length > 0 && window.FX) {
+                _refreshTimer = setInterval(async function() {
+                    try {
+                        var r = await fetch('/api/strong_pick?t=' + Date.now());
+                        var d = await r.json();
+                        if (d.success && d.stocks && d.stocks.length > 0) renderStocks(d);
+                    } catch(e) {}
+                }, 30000);
+            }
         }
 
         function showEmpty() {
-            document.getElementById('stocksContent').innerHTML = '<div class="empty-state"><div class="icon">S</div><div class="title">等待筛选</div><div class="desc">点击「执行筛选」扫描全市场强势股</div></div>';
+            document.getElementById('stocksContent').innerHTML = '<div class="empty-state"><div class="icon">势</div><div class="title">等待筛选</div><div class="desc">点击「执行筛选」扫描全市场强势股</div></div>';
             ['totalCount','avgChange','avgScore','goldenCrossCount','pullbackCount'].forEach(id => {
                 document.getElementById(id).textContent = '-';
             });
@@ -502,7 +457,7 @@
 
         function showToast(msg) {
             const t = document.createElement('div');
-            t.style.cssText = 'position:fixed;top:64px;left:50%;transform:translateX(-50%);padding:10px 24px;background:#18182a;border:1px solid #2a2a3a;color:#ddd;border-radius:6px;font-size:14px;z-index:9999;font-family:inherit;';
+            t.style.cssText = 'position:fixed;top:62px;left:50%;transform:translateX(-50%);padding:9px 22px;background:var(--surface-2);border:1px solid var(--border-2);color:var(--text);border-radius:6px;font-size:13px;z-index:9999;font-family:var(--sans);';
             t.textContent = msg;
             document.body.appendChild(t);
             setTimeout(() => t.remove(), 2000);
