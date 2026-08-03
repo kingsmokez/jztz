@@ -305,6 +305,16 @@ def run_strong_stock_picker(top_n: int = 30) -> list[dict]:
                 "signal_bullish_engulf": tech.get("signal_bullish_engulf", False) if tech else False,
                 "signal_close_strong": tech.get("signal_close_strong", False) if tech else False,
                 "signal_above_ma5": tech.get("signal_above_ma5", False) if tech else False,
+                "obv_trend": tech.get("obv_trend", "neutral") if tech else "neutral",
+                "boll_width_pct": round(tech.get("boll_width_pct"), 1) if tech and tech.get("boll_width_pct") else None,
+                "rsi_6": tech.get("rsi_6") if tech else None,
+                "rsi_12": tech.get("rsi_12") if tech else None,
+                "rsi_24": tech.get("rsi_24") if tech else None,
+                "momentum_20": tech.get("momentum_20", 0) if tech else 0,
+                "momentum_60": tech.get("momentum_60", 0) if tech else 0,
+                "vwap": round(tech.get("vwap"), 2) if tech and tech.get("vwap") else None,
+                "atr": round(tech.get("atr"), 2) if tech and tech.get("atr") else None,
+                "ma_signal": tech.get("ma_signal", "unknown") if tech else "unknown",
                 "pe": round(pe, 1) if pe > 0 else 0,
                 "pb": round(pb, 2) if pb > 0 else 0,
                 "roe": round(roe, 1) if roe else 0,
@@ -355,6 +365,16 @@ def run_strong_stock_picker(top_n: int = 30) -> list[dict]:
                 reason_parts.append("尾盘强势")
             if tech and tech.get("signal_above_ma5"):
                 reason_parts.append("连续站上MA5")
+            if tech and tech.get("obv_trend") == "bullish":
+                reason_parts.append("OBV量价齐升")
+            if tech and tech.get("boll_width_pct") and tech.get("boll_width_pct") < 5:
+                reason_parts.append("布林收敛变盘")
+            if tech and tech.get("ma_signal") == "bull":
+                reason_parts.append("MA多头排列")
+            if tech and tech.get("momentum_20", 0) >= 8:
+                _mom20 = tech.get("momentum_20", 0)
+                reason_parts.append(f"20日动量{_mom20:.1f}%")
+                reason_parts.append("MACD偏多")
             if pe > 0 and pe < 15:
                 reason_parts.append(f"PE{pe:.0f}低估")
             if roe > 15:
@@ -670,5 +690,56 @@ def _calc_strong_score(q: StockQuote, f: Optional[FinancialData],
         # 看涨吞没+连续站上MA5: 胜率72.73% (+5分)
         if has_engulf and has_above_ma5:
             score += 5
+
+        # === V6.3 原有技术指标纳入强势评分 ===
+
+        # 1. OBV量价趋势 (+3分)
+        obv_trend = trend_signals.get("obv_trend", "neutral")
+        if obv_trend == "bullish":
+            score += 3  # OBV量价齐升 — 资金持续流入
+
+        # 2. 布林带收敛变盘 (+2分)
+        boll_width_pct = trend_signals.get("boll_width_pct")
+        if boll_width_pct is not None and boll_width_pct < 5:
+            score += 2  # 极度收敛 — 变盘在即
+
+        # 3. 多周期RSI共振超卖 (+3分)
+        rsi_6 = trend_signals.get("rsi_6")
+        rsi_12 = trend_signals.get("rsi_12")
+        rsi_24 = trend_signals.get("rsi_24")
+        if rsi_6 is not None and rsi_12 is not None and rsi_24 is not None:
+            if rsi_6 < 30 and rsi_12 < 40 and rsi_24 < 50:
+                score += 3  # RSI多周期共振超卖 — 反弹概率高
+
+        # 4. MA多头排列 (+3分)
+        ma_signal = trend_signals.get("ma_signal", "unknown")
+        if ma_signal == "bull":
+            score += 3  # MA多头排列 — 趋势向上
+
+        # 5. 20日动量强势 (+3分)
+        momentum_20 = trend_signals.get("momentum_20", 0)
+        if momentum_20 is not None and momentum_20 >= 8:
+            score += 3  # 20日涨幅>=8% — 中期动量强
+
+        # 6. MACD偏多确认 (+2分)
+        macd_signal_val = trend_signals.get("macd_signal", "neutral")
+        if macd_signal_val in ("golden_cross", "bullish") and not golden_cross:
+            score += 2  # MACD偏多(非金叉时补充加分)
+
+        # 7. VWAP贴近支撑 (+2分)
+        vwap_val = trend_signals.get("vwap")
+        price_val = trend_signals.get("price") or trend_signals.get("ma5")
+        if vwap_val is not None and price_val is not None and vwap_val > 0:
+            pct_above = abs(price_val - vwap_val) / vwap_val * 100
+            if pct_above <= 2:
+                score += 2  # 价格贴近VWAP — 成本支撑强
+
+        # 8. ATR低波动率 (+1分) — 波动率适中更稳健
+        atr_val = trend_signals.get("atr")
+        price_for_atr = trend_signals.get("price") or 0
+        if atr_val is not None and price_for_atr > 0:
+            atr_pct = atr_val / price_for_atr * 100
+            if 1.5 <= atr_pct <= 4:
+                score += 1  # 波动率适中 — 稳健上涨
 
     return min(100, max(0, score))
