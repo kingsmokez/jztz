@@ -334,7 +334,7 @@ def get_realtime_quotes(codes: Optional[list[str]] = None) -> dict[str, StockQuo
                 return {}
 
         quotes: dict[str, StockQuote] = {}
-        batch_size = 80
+        batch_size = 150
 
         # 构建腾讯API所需的代码列表（sh6/sz0前缀）
         tx_code_map = {}
@@ -417,14 +417,14 @@ def get_realtime_quotes(codes: Optional[list[str]] = None) -> dict[str, StockQuo
                 log.error(f"解析行情数据异常: 批次 {batch_idx}, {e}")
             return batch_quotes
 
-        max_workers = min(16, len(batches)) if batches else 1
+        max_workers = min(25, len(batches)) if batches else 1
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {}
             for idx, batch in enumerate(batches):
                 futures[executor.submit(_fetch_batch, idx, batch)] = idx
                 # 无 sleep 节流：连接池大小自然限制并发，16线程远小于连接池64
             try:
-                for future in as_completed(futures, timeout=120):
+                for future in as_completed(futures, timeout=90):
                     try:
                         batch_quotes = future.result(timeout=15)
                         quotes.update(batch_quotes)
@@ -672,7 +672,7 @@ def _get_financial_data_individual(codes: list[str]) -> dict[str, FinancialData]
                 "pageNumber": 1, "pageSize": 1,
                 "source": "WEB", "client": "WEB",
             }
-            resp = _get_session().get(base_url, params=params1, headers=dc_headers, timeout=5)
+            resp = _get_session().get(base_url, params=params1, headers=dc_headers, timeout=3)
             d = resp.json()
             if d.get("success") and d.get("result") and d["result"].get("data"):
                 item = d["result"]["data"][0]
@@ -695,7 +695,7 @@ def _get_financial_data_individual(codes: list[str]) -> dict[str, FinancialData]
                 "pageNumber": 1, "pageSize": 1,
                 "source": "WEB", "client": "WEB",
             }
-            resp = _get_session().get(base_url, params=params2, headers=dc_headers, timeout=5)
+            resp = _get_session().get(base_url, params=params2, headers=dc_headers, timeout=3)
             d = resp.json()
             if d.get("success") and d.get("result") and d["result"].get("data"):
                 item = d["result"]["data"][0]
@@ -716,14 +716,14 @@ def _get_financial_data_individual(codes: list[str]) -> dict[str, FinancialData]
         )
 
     # 无 sleep 节流：连接池大小自然限制并发，ThreadPoolExecutor 控制线程数
-    max_workers = min(len(codes), _config.calibrate_threads, 15)
+    max_workers = min(len(codes), _config.calibrate_threads, 25)
     if max_workers < 1:
         return results
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(fetch_one, c): c for c in codes}
         try:
-            for future in as_completed(futures, timeout=60):
+            for future in as_completed(futures, timeout=90):
                 code = futures[future]
                 try:
                     result = future.result(timeout=10)
