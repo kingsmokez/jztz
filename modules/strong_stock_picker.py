@@ -140,9 +140,9 @@ def run_strong_stock_picker(top_n: int = 30) -> list[dict]:
     try:
         with ThreadPoolExecutor(max_workers=15) as executor:
             futures = [executor.submit(calc_tech, c) for c in codes]
-            for future in as_completed(futures, timeout=60):
+            for future in as_completed(futures, timeout=180):
                 try:
-                    code, tech = future.result(timeout=20)
+                    code, tech = future.result(timeout=30)
                     if tech:
                         tech_cache[code] = tech
                 except Exception:
