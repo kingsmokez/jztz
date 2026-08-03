@@ -138,7 +138,7 @@ def run_strong_stock_picker(top_n: int = 30) -> list[dict]:
 
     log.info(f"强势选股: 批量计算技术指标 {len(candidates)} 只...")
     try:
-        with ThreadPoolExecutor(max_workers=15) as executor:
+        with ThreadPoolExecutor(max_workers=25) as executor:
             futures = [executor.submit(calc_tech, c) for c in codes]
             for future in as_completed(futures, timeout=180):
                 try:
@@ -387,7 +387,7 @@ def run_strong_stock_picker(top_n: int = 30) -> list[dict]:
             return None
 
     try:
-        with ThreadPoolExecutor(max_workers=15) as executor:
+        with ThreadPoolExecutor(max_workers=25) as executor:
             futures = {executor.submit(score_one, c): c for c in candidates}
             for future in as_completed(futures):
                 try:
