@@ -10,27 +10,51 @@ if not _acquire_pid_lock():
     print("错误: 无法获取实例锁，已有实例运行或端口被占用，退出")
     sys.exit(1)
 
+# 异步预选股：后台线程选股，不阻塞服务启动
+import threading
+print("[预选股] 启动后台选股线程...", flush=True)
+from web_app import run_auction_picker, run_strong_picker, run_wp2_picker, run_daily_picker
+def _bg_preserve():
+    import time
+    for name, func in [("竞价", run_auction_picker), ("强势", run_strong_picker), ("WP2", run_wp2_picker), ("每日", run_daily_picker)]:
+        try:
+            print(f"[预选股] {name}选股中...", flush=True)
+            func()
+            print(f"[预选股] {name}选股完成", flush=True)
+        except Exception as e:
+            print(f"[预选股] {name}选股失败: {e}", flush=True)
+    print("[预选股] 后台选股全部完成", flush=True)
+_t = threading.Thread(target=_bg_preserve, daemon=True, name="preserve_pick")
+_t.start()
+print("[预选股] 后台选股已启动，立即启动web服务", flush=True)
+
+# 预选股完成后再启动调度器（后台定时刷新）
 start_scheduler()
 
 try:
     from waitress import serve
     from modules.config import load_config
     cfg = load_config()
+    login_url = f"http://localhost:{cfg.server.port}/"
     print(f"生产模式启动: {cfg.server.host}:{cfg.server.port}")
+    print("=" * 50)
+    print(f"✓ 服务已启动，登录地址: {login_url}")
+    print("=" * 50)
     serve(
         app,
         host=cfg.server.host,
         port=cfg.server.port,
-        threads=12,               # 工作线程数（原4，提升以支持更多并发）
-        channel_timeout=120,      # 通道超时120秒（原600，降低以更快回收断线连接）
-        request_timeout=120,      # 请求超时120秒（无默认值，不设置则挂起请求永不释放线程）
-        cleanup_interval=30,      # 清理间隔30秒
-        connection_limit=500,     # 最大连接数（原100，提升以支持更多客户端）
-        max_request_body_size=0,  # 不限制请求体大小
+        threads=12,
+        channel_timeout=120,
+        cleanup_interval=30,
+        connection_limit=500,
     )
 except ImportError:
     print("waitress未安装，使用Flask开发服务器")
-    app.run(host="0.0.0.0", port=5559, threaded=True)
+    print("=" * 50)
+    print(f"✓ 服务已启动，登录地址: http://localhost:{cfg.server.port}/")
+    print("=" * 50)
+    app.run(host=cfg.server.host, port=cfg.server.port, threaded=True)
 finally:
     _graceful_shutdown()
     _release_pid_lock()
