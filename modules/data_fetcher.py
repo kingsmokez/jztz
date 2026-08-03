@@ -63,9 +63,18 @@ def _get_all_stock_codes() -> list[str]:
     """
     global _stock_codes_cache, _stock_codes_cache_time
 
-    # 1小时缓存：股票列表最多季度更新
+    # 1小时内存缓存
     if _stock_codes_cache and (time.time() - _stock_codes_cache_time) < 3600:
         return _stock_codes_cache
+
+    # 文件缓存（24小时过期）：避免每次重启都从API重新获取
+    if not _stock_codes_cache:
+        file_codes = _load_stock_codes_file()
+        if file_codes:
+            _stock_codes_cache = file_codes
+            _stock_codes_cache_time = time.time()
+            log.info(f"从文件缓存加载 {len(file_codes)} 只A股代码")
+            return file_codes
 
     acquired = _stock_codes_lock.acquire(blocking=False)
     if not acquired:
@@ -162,6 +171,7 @@ def _get_all_stock_codes() -> list[str]:
                             result = sorted(actual_codes)
                             _stock_codes_cache = result
                             _stock_codes_cache_time = time.time()
+                            _save_stock_codes_file(result)
                             return result
                 except Exception as e:
                     log.debug(f"尝试季度{qdate}失败: {e}")
@@ -172,6 +182,7 @@ def _get_all_stock_codes() -> list[str]:
                 log.info(f"从东方财富获取到 {len(result)} 只A股代码")
                 _stock_codes_cache = result
                 _stock_codes_cache_time = time.time()
+                _save_stock_codes_file(result)
                 return result
 
         except Exception as e:
@@ -413,7 +424,7 @@ def get_realtime_quotes(codes: Optional[list[str]] = None) -> dict[str, StockQuo
                 futures[executor.submit(_fetch_batch, idx, batch)] = idx
                 # 无 sleep 节流：连接池大小自然限制并发，16线程远小于连接池64
             try:
-                for future in as_completed(futures, timeout=60):
+                for future in as_completed(futures, timeout=120):
                     try:
                         batch_quotes = future.result(timeout=15)
                         quotes.update(batch_quotes)
@@ -1337,3 +1348,37 @@ def preload_industry_cache(codes: list[str]) -> dict[str, dict]:
 # 行业缓存
 _industry_cache: dict = {}
 _industry_cache_time: float = 0
+
+
+def _stock_codes_file_path() -> str:
+    import os
+    return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'stock_codes_cache.json')
+
+
+def _save_stock_codes_file(codes: list) -> None:
+    try:
+        import os, json
+        path = _stock_codes_file_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        data = {"codes": codes, "updated_at": time.time(), "date": datetime.now().strftime("%Y-%m-%d")}
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+    except Exception:
+        pass
+
+
+def _load_stock_codes_file() -> list:
+    try:
+        import os, json
+        path = _stock_codes_file_path()
+        if not os.path.exists(path):
+            return []
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        codes = data.get("codes", [])
+        updated_at = data.get("updated_at", 0)
+        if codes and (time.time() - updated_at) < 86400:
+            return codes
+        return []
+    except Exception:
+        return []
