@@ -269,7 +269,7 @@ class KlineFetcher:
                     return None
             return None
 
-        max_workers = min(len(uncached), 20)
+        max_workers = min(len(uncached), 30)
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             futures = {pool.submit(_fetch_one_simple, c): c for c in uncached}
             for future in as_completed(futures, timeout=180):
