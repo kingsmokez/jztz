@@ -32,9 +32,8 @@ from modules.errors import ApiError
 from modules.logger import log, set_request_id
 
 # 全局选股数据
-# 读写锁：读操作（API获取数据）并发无阻塞，写操作（选股更新数据）独占
-_picker_read_lock = threading.RLock()   # 读锁（可重入，多读并发）
-_picker_write_lock = threading.Lock()   # 写锁（独占）
+# 使用单一 RLock 保护读写，确保线程安全
+_picker_lock = threading.RLock()
 DAILY_PICK_DATA: Optional[list[dict]] = None
 AUCTION_PICK_DATA: Optional[list[dict]] = None
 WP2_PICK_DATA: Optional[list[dict]] = None
@@ -121,8 +120,42 @@ _scheduler_started = False
 # 公共JS: fetchWithRetry 封装（超时+重试+断线检测）
 COMMON_JS = r"""
 /**
+ * CSRF Token management
+ */
+let _csrfToken = null;
+async function getCsrfToken() {
+    if (_csrfToken) return _csrfToken;
+    try {
+        const resp = await fetch('/api/auth/whoami');
+        if (resp.ok) {
+            const data = await resp.json();
+            if (data.success && data.csrf_token) {
+                _csrfToken = data.csrf_token;
+                return _csrfToken;
+            }
+        }
+    } catch (e) {
+        console.warn('获取CSRF token失败:', e);
+    }
+    return null;
+}
+
+/**
+ * fetchWithCSRF - 自动附加CSRF token的fetch封装
+ * 用于POST/PUT/DELETE等非安全请求
+ */
+async function fetchWithCSRF(url, options = {}) {
+    const token = await getCsrfToken();
+    const headers = { ...options.headers };
+    if (token) {
+        headers['X-CSRF-Token'] = token;
+    }
+    return fetch(url, { ...options, headers });
+}
+
+/**
  * fetchWithRetry - 带超时和重试的 fetch 封装
- * 
+ *
  * @param {string} url - 请求URL
  * @param {object} options - fetch选项
  * @param {number} [timeout=30000] - 超时时间(ms)
@@ -134,16 +167,16 @@ async function fetchWithRetry(url, options = {}, timeout = 30000, retries = 2, r
     for (let attempt = 0; attempt <= retries; attempt++) {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), timeout);
-        
+
         try {
             const resp = await fetch(url, {
                 ...options,
                 signal: controller.signal,
             });
             clearTimeout(timeoutId);
-            
+
             if (resp.ok) return resp;
-            
+
             // 服务器错误(5xx)可重试，客户端错误(4xx)不重试
             if (resp.status >= 500 && attempt < retries) {
                 console.warn(`请求失败(${resp.status}), ${retryDelay}ms后重试 (${attempt+1}/${retries})...`);
@@ -154,13 +187,13 @@ async function fetchWithRetry(url, options = {}, timeout = 30000, retries = 2, r
             return resp;
         } catch (err) {
             clearTimeout(timeoutId);
-            
+
             if (err.name === 'AbortError') {
                 console.warn(`请求超时(${timeout}ms), 重试 (${attempt+1}/${retries})...`);
             } else {
                 console.warn(`网络错误: ${err.message}, 重试 (${attempt+1}/${retries})...`);
             }
-            
+
             if (attempt < retries) {
                 await new Promise(r => setTimeout(r, retryDelay));
                 retryDelay *= 1.5;
@@ -190,8 +223,11 @@ def _save_cache(filename: str, data: Any) -> None:
     try:
         os.makedirs(_CACHE_DIR, exist_ok=True)
         filepath = os.path.join(_CACHE_DIR, filename)
-        with open(filepath, "w", encoding="utf-8") as f:
+        # 原子写入：先写临时文件再替换，避免崩溃时损坏缓存
+        tmp_path = filepath + '.tmp'
+        with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, default=str)
+        os.replace(tmp_path, filepath)
         log.debug(f"缓存已保存: {filename}")
     except Exception as e:
         log.warning(f"缓存保存失败: {filename}, {e}")
@@ -203,6 +239,25 @@ def _load_cache(filename: str) -> Any:
         if os.path.exists(filepath):
             with open(filepath, "r", encoding="utf-8") as f:
                 data = json.load(f)
+            # 日期校验：不加载过期缓存
+            today = _datetime.now().strftime('%Y-%m-%d')
+            if isinstance(data, dict):
+                cache_date = data.get('date', '')
+            elif isinstance(data, list):
+                # 列表格式：用文件修改日期判断是否今日
+                mtime = os.path.getmtime(filepath)
+                mtime_date = _datetime.fromtimestamp(mtime).strftime('%Y-%m-%d')
+                if mtime_date == today:
+                    cache_date = mtime_date
+                    log.info(f"缓存{filename}为列表格式（{len(data)}条），按文件日期{mtime_date}加载")
+                else:
+                    log.info(f"缓存{filename}为列表格式，文件日期{mtime_date}非今日{today}，跳过")
+                    return None
+            else:
+                cache_date = ''
+            if cache_date and cache_date != today:
+                log.info(f"缓存{filename}日期{cache_date}非今日{today}，跳过加载")
+                return None
             # V5.5: Filter ROE<0 stocks from all caches
             if isinstance(data, list):
                 data = [r for r in data
@@ -213,6 +268,11 @@ def _load_cache(filename: str) -> Any:
                     if isinstance(sub, list):
                         data[key] = [r for r in sub
                                      if not (isinstance(r.get('roe'), (int, float)) and r.get('roe') < 0)]
+                        # strong_pick_cache 需要保留 dict 格式（含 pick_time/last_update）
+                        # 其他缓存保持旧行为：直接返回列表
+                        if key in ('stocks', 'results') and 'strong' not in filename:
+                            data = sub
+                            break
                     elif isinstance(sub, dict) and 'results' in sub:
                         data[key]['results'] = [r for r in sub['results']
                                                 if not (isinstance(r.get('roe'), (int, float)) and r.get('roe') < 0)]
@@ -225,7 +285,7 @@ def _load_cache(filename: str) -> Any:
 
 def _restore_all_caches() -> None:
     global DAILY_PICK_DATA, AUCTION_PICK_DATA, WP2_PICK_DATA, STRONG_PICK_DATA
-    with _picker_write_lock:
+    with _picker_lock:
         DAILY_PICK_DATA = _load_cache("daily_pick_raw_cache.json")
         AUCTION_PICK_DATA = _load_cache("auction_pick_cache.json")
         WP2_PICK_DATA = _load_cache("wp2_pick_cache.json")
@@ -235,8 +295,15 @@ def _restore_all_caches() -> None:
 
 def create_app() -> Flask:
     """App Factory"""
+    from datetime import timedelta
+
     app = Flask(__name__)
     app.secret_key = _config.server.secret_key
+
+    # Session 生命周期: 8小时后过期
+    app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=8)
+    # 请求体大小限制: 10MB
+    app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
 
     if not _config.server.debug:
         app.config["TEMPLATES_AUTO_RELOAD"] = False
@@ -246,6 +313,10 @@ def create_app() -> Flask:
     for bp in ALL_BLUEPRINTS:
         app.register_blueprint(bp)
 
+    # CSRF 保护
+    from modules.auth import register_csrf_protection
+    register_csrf_protection(app)
+
     # 全局错误处理器
     _register_error_handlers(app)
 
@@ -254,6 +325,9 @@ def create_app() -> Flask:
 
     # 请求日志中间件 (request_id 串联)
     _setup_request_logging(app)
+
+    # 安全响应头
+    _setup_security_headers(app)
 
     # 公共JS: fetchWithRetry 统一封装
     @app.route("/api/js/common.js")
@@ -454,14 +528,15 @@ def start_scheduler() -> None:
         except Exception as e:
             log.error(f"V5实盘监测任务调度失败: {e}")
 
-    scheduler.add_job("daily_picker", run_daily_picker, interval_seconds=300)
-    scheduler.add_job("auction_picker", run_auction_picker, interval_seconds=60)
-    scheduler.add_job("wp2_picker", run_wp2_picker, interval_seconds=300)
-    scheduler.add_job("strong_picker", run_strong_picker, interval_seconds=300)
-    scheduler.add_job("auction_preselect", _run_auction_preselect_check, interval_seconds=60)
-    scheduler.add_job("auction_monitor", _run_auction_monitor, interval_seconds=86400)
-    scheduler.add_job("cache_cleanup", _run_cache_cleanup, interval_seconds=600)
-    scheduler.add_job("industry_cache_flush", _run_industry_cache_flush, interval_seconds=120)
+    # 去掉延迟，让所有任务立即执行（已优化后不会卡死）
+    scheduler.add_job("auction_picker", run_auction_picker, interval_seconds=60, initial_delay=600)
+    scheduler.add_job("wp2_picker", run_wp2_picker, interval_seconds=300, initial_delay=600)
+    scheduler.add_job("strong_picker", run_strong_picker, interval_seconds=300, initial_delay=600)
+    scheduler.add_job("daily_picker", run_daily_picker, interval_seconds=300, initial_delay=600)
+    scheduler.add_job("auction_preselect", _run_auction_preselect_check, interval_seconds=60, initial_delay=600)
+    scheduler.add_job("auction_monitor", _run_auction_monitor, interval_seconds=86400, initial_delay=600)
+    scheduler.add_job("cache_cleanup", _run_cache_cleanup, interval_seconds=600, initial_delay=600)
+    scheduler.add_job("industry_cache_flush", _run_industry_cache_flush, interval_seconds=120, initial_delay=600)
     scheduler.start_background()
 
     # 启动SSE推送中心
@@ -473,25 +548,25 @@ def start_scheduler() -> None:
 # === 数据访问接口 ===
 
 def get_picker_data() -> Optional[list[dict]]:
-    with _picker_read_lock:
+    with _picker_lock:
         return DAILY_PICK_DATA
 
 def get_auction_data() -> Optional[list[dict]]:
-    with _picker_read_lock:
+    with _picker_lock:
         return AUCTION_PICK_DATA
 
 def get_wp2_data() -> Optional[list[dict]]:
-    with _picker_read_lock:
+    with _picker_lock:
         return WP2_PICK_DATA
 
-def get_strong_data() -> Optional[list[dict]]:
-    with _picker_read_lock:
+def get_strong_data() -> Optional[dict]:
+    with _picker_lock:
         return STRONG_PICK_DATA
 
 
 def clear_strong_data() -> None:
     global STRONG_PICK_DATA
-    with _picker_write_lock:
+    with _picker_lock:
         STRONG_PICK_DATA = None
 
 
@@ -502,14 +577,23 @@ def run_daily_picker() -> list[dict]:
     try:
         from modules.stock_picker import run_picker
         result = run_picker()
-        with _picker_write_lock:
+        # 守卫：空结果不覆盖已有数据（可能是API临时故障）
+        if not result and DAILY_PICK_DATA:
+            log.info("每日选股结果为空，保留已有数据")
+            return DAILY_PICK_DATA
+        with _picker_lock:
             DAILY_PICK_DATA = result
-        _save_cache("daily_pick_raw_cache.json", result)
+        _save_cache("daily_pick_raw_cache.json", {
+            "date": _datetime.now().strftime('%Y-%m-%d'),
+            "stocks": result,
+            "pick_time": _datetime.now().strftime('%H:%M:%S'),
+            "last_update": _datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        })
         log.info(f"每日选股完成: {len(result)} 只")
         return result
     except Exception as e:
         log.error(f"每日选股失败: {e}", exc_info=True)
-        return []
+        return DAILY_PICK_DATA or []
 
 def run_auction_picker() -> list[dict]:
     global AUCTION_PICK_DATA
@@ -525,7 +609,7 @@ def run_auction_picker() -> list[dict]:
             if cached:
                 AUCTION_PICK_DATA = cached
                 return cached
-        with _picker_write_lock:
+        with _picker_lock:
             AUCTION_PICK_DATA = result
         # 保存为dict格式（兼容 routes/auction.py 的格式）
         save_data = {
@@ -537,12 +621,9 @@ def run_auction_picker() -> list[dict]:
             "candidate_pool": [],
         }
         _save_cache("auction_pick_cache.json", save_data)
-        # 同步到 routes/auction 的 AUCTION_PICK_DATA
-        try:
-            from routes.auction import AUCTION_PICK_DATA as ROUTE_DATA
-            ROUTE_DATA.update(save_data)
-        except Exception:
-            pass
+        # 注意：不再同步到 routes/auction 的 AUCTION_PICK_DATA
+        # routes/auction 使用自己的 V2 评分系统（_execute_auction_pick / api_auction_confirm）
+        # 旧版 auction_picker 的结果仅用于 web_app 首页展示，不应覆盖 V2 评分结果
         log.info(f"集合竞价选股完成: {len(result)} 只")
         return result
     except Exception as e:
@@ -561,20 +642,32 @@ def run_wp2_picker() -> list[dict]:
             if cached:
                 WP2_PICK_DATA = cached
                 return cached
-        with _picker_write_lock:
+        with _picker_lock:
             WP2_PICK_DATA = result
-        _save_cache("wp2_pick_cache.json", result)
+        _save_cache("wp2_pick_cache.json", {
+            "date": _datetime.now().strftime('%Y-%m-%d'),
+            "stocks": result,
+            "pick_time": _datetime.now().strftime('%H:%M:%S'),
+            "last_update": _datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        })
         log.info(f"WP2选股完成: {len(result)} 只")
         return result
     except Exception as e:
         log.error(f"WP2选股失败: {e}", exc_info=True)
         return []
 
-def run_strong_picker() -> list[dict]:
+def run_strong_picker() -> dict:
     global STRONG_PICK_DATA
     try:
         from modules.strong_stock_picker import run_strong_stock_picker
         result = run_strong_stock_picker()
+        now = _datetime.now()
+        payload = {
+            "date": now.strftime('%Y-%m-%d'),
+            "stocks": result,
+            "pick_time": now.strftime('%H:%M:%S'),
+            "last_update": now.strftime('%Y-%m-%d %H:%M:%S'),
+        }
         if not result and STRONG_PICK_DATA:
             return STRONG_PICK_DATA
         if not result and not STRONG_PICK_DATA:
@@ -582,14 +675,14 @@ def run_strong_picker() -> list[dict]:
             if cached:
                 STRONG_PICK_DATA = cached
                 return cached
-        with _picker_write_lock:
-            STRONG_PICK_DATA = result
-        _save_cache("strong_pick_cache.json", result)
+        with _picker_lock:
+            STRONG_PICK_DATA = payload
+        _save_cache("strong_pick_cache.json", payload)
         log.info(f"强势选股完成: {len(result)} 只")
-        return result
+        return payload
     except Exception as e:
         log.error(f"强势选股失败: {e}", exc_info=True)
-        return []
+        return {"date": _datetime.now().strftime('%Y-%m-%d'), "stocks": STRONG_PICK_DATA.get("stocks", []) if isinstance(STRONG_PICK_DATA, dict) else [], "pick_time": "", "last_update": ""}
 
 def run_auction_compare(params: dict) -> dict:
     try:
@@ -626,6 +719,23 @@ def _setup_request_logging(app: Flask) -> None:
         return response
 
 
+def _setup_security_headers(app: Flask) -> None:
+    """为所有响应添加安全响应头"""
+
+    @app.after_request
+    def _add_security_headers(response):
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["X-XSS-Protection"] = "0"  # 现代浏览器不推荐，禁用以避免问题
+        # 仅在 HTTPS 环境下设置 HSTS
+        if request.url.startswith("https://"):
+            response.headers["Strict-Transport-Security"] = (
+                "max-age=31536000; includeSubDomains"
+            )
+        return response
+
+
 # === 进程保护 ===
 # 标记进程是否正在正常运行，防止 daemon 线程触发 interpreter shutdown
 _process_running = True
@@ -642,7 +752,11 @@ def _graceful_shutdown() -> None:
     """优雅退出：标记进程停止，让 daemon 线程安全退出"""
     global _process_running
     _process_running = False
-    log.info("进程正在优雅退出，daemon线程将安全停止")
+    try:
+        log.info("进程正在优雅退出，daemon线程将安全停止")
+    except (ValueError, OSError):
+        # stdout/stderr may already be closed during interpreter shutdown
+        pass
     # 停止SSE推送中心
     _sse_hub._running = False
 
@@ -681,25 +795,26 @@ def _acquire_pid_lock() -> bool:
                 import subprocess
                 try:
                     if is_windows:
-                        # Windows: netstat -ano + taskkill
+                        # Windows: netstat -ano + taskkill (avoid shell=True)
                         output = subprocess.check_output(
-                            f'netstat -ano | findstr ":{port} " | findstr "LISTENING"',
-                            shell=True, text=True, timeout=5
+                            ["netstat", "-ano"],
+                            text=True, timeout=5
                         )
                         for line in output.strip().splitlines():
-                            parts = line.split()
-                            if parts:
-                                pid = parts[-1]
-                                log.info(f"终止占用端口的进程 PID={pid}")
-                                subprocess.run(
-                                    ["taskkill", "/F", "/PID", pid],
-                                    capture_output=True, timeout=5
-                                )
+                            if f":{port} " in line and "LISTENING" in line:
+                                parts = line.split()
+                                if parts:
+                                    pid = parts[-1]
+                                    log.info(f"终止占用端口的进程 PID={pid}")
+                                    subprocess.run(
+                                        ["taskkill", "/F", "/PID", pid],
+                                        capture_output=True, timeout=5
+                                    )
                     else:
-                        # Linux/macOS: lsof + kill
+                        # Linux/macOS: lsof + kill (avoid shell=True)
                         output = subprocess.check_output(
-                            f'lsof -iTCP:{port} -sTCP:LISTEN -t',
-                            shell=True, text=True, timeout=5
+                            ["lsof", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
+                            text=True, timeout=5
                         )
                         for pid in output.strip().splitlines():
                             pid = pid.strip()
@@ -735,6 +850,30 @@ def _release_pid_lock() -> None:
         pass
 
 
+def _run_initial_picks() -> None:
+    """启动后台线程立即执行首次选股（而非等待调度器首次触发）"""
+    def _run_all():
+        time.sleep(5)  # 等服务器稳定、外部API连接建立
+        log.info("首次选股: 开始执行每日选股...")
+        try:
+            run_daily_picker()
+        except Exception as e:
+            log.error(f"首次每日选股失败: {e}")
+        log.info("首次选股: 开始执行强势选股...")
+        try:
+            run_strong_picker()
+        except Exception as e:
+            log.error(f"首次强势选股失败: {e}")
+        log.info("首次选股: 开始执行尾盘选股...")
+        try:
+            run_wp2_picker()
+        except Exception as e:
+            log.error(f"首次尾盘选股失败: {e}")
+        log.info("首次选股全部完成")
+    t = threading.Thread(target=_run_all, daemon=True, name="initial_picks")
+    t.start()
+
+
 if __name__ == "__main__":
     # 检查是否已有实例运行
     if not _acquire_pid_lock():
@@ -743,6 +882,7 @@ if __name__ == "__main__":
 
     sys.modules["web_app"] = sys.modules["__main__"]
     start_scheduler()
+    _run_initial_picks()
 
     import signal
     def _handle_exit(signum, frame):
