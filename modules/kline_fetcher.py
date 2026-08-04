@@ -272,10 +272,10 @@ class KlineFetcher:
         max_workers = min(len(uncached), 30)
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             futures = {pool.submit(_fetch_one_simple, c): c for c in uncached}
-            for future in as_completed(futures, timeout=180):
+            for future in as_completed(futures, timeout=600):
                 code = futures[future]
                 try:
-                    results[code] = future.result(timeout=15)
+                    results[code] = future.result(timeout=30)
                 except Exception:
                     results[code] = None
 
