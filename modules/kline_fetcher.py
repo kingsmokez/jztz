@@ -1,4 +1,4 @@
-"""统一K线数据获取模块 — 6源互备 + 快速自动切换
+﻿"""统一K线数据获取模块 — 6源互备 + 快速自动切换
 
 数据源优先级 (按速度和稳定性排序):
 1. 腾讯 kline   (web.ifzq.gtimg.cn/appstock/app/kline/kline) — 不复权，最快
@@ -52,7 +52,7 @@ class KlineFetcher:
         self._xueqiu_cookie_time = 0.0
         # K线结果缓存: {(code, count): (result, expire_time)}
         self._cache: dict[tuple[str, int], tuple[Optional[list[dict]], float]] = {}
-        self._cache_ttl = 300  # 5分钟缓存，同一次选股周期内不重复请求
+        self._cache_ttl = 3600  # 1小时缓存，非交易时间K线不变化
 
     # ------------------------------------------------------------------
     # 公开 API
