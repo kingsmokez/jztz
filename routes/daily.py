@@ -275,6 +275,11 @@ def api_daily_pick():
     # 缺失数据时在后台异步执行选股，避免请求超时
     def _background_daily():
         try:
+            # 避免重复触发：如果预选股线程正在运行，跳过
+            from web_app import get_picker_data
+            existing = get_picker_data()
+            if existing and len(existing) > 0:
+                return
             if need_afternoon and current_hour >= 14:
                 _execute_daily_pick('afternoon')
             if need_morning and current_hour >= 9:
@@ -332,6 +337,11 @@ def api_pick():
             # 后台异步选股，避免请求超时
             def _bg_pick():
                 try:
+                    # 检查是否已有数据（避免前端轮询重复触发选股）
+                    from web_app import get_picker_data
+                    existing = get_picker_data()
+                    if existing and len(existing) > 0:
+                        return  # 已有数据，不需要重新选股
                     from web_app import run_daily_picker
                     run_daily_picker()
                 except Exception as e:
