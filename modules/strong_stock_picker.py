@@ -128,6 +128,13 @@ def run_strong_stock_picker(top_n: int = 30) -> list[dict]:
 
     def calc_tech(code: str):
         try:
+            import time as _time
+            # 检查K线是否已在缓存中，未缓存则跳过（避免逐只网络获取卡死）
+            cache_key = (code, 120)
+            with kline_fetcher._lock:
+                cached = kline_fetcher._cache.get(cache_key)
+            if not cached or (cached[1] and _time.time() >= cached[1]):
+                return (code, None)  # K线未缓存，跳过
             from modules.technical import calculate_technical_indicators
             tech = calculate_technical_indicators(code, days=60)
             return (code, tech)
