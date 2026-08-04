@@ -664,15 +664,17 @@ def _get_financial_data_individual(codes: list[str]) -> dict[str, FinancialData]
         rev_growth = 0.0
         profit_growth = 0.0
 
+        # 合并为单次API调用：RPT_F10_FINANCE_MAINFINADATA 包含所有需要的字段
         try:
-            params1 = {
+            params = {
                 "reportName": "RPT_F10_FINANCE_MAINFINADATA",
-                "columns": "REPORT_DATE_NAME,ROEJQ,XSMLL,ZCFZL,XSJLL",
+                "columns": "ROEJQ,XSMLL,ZCFZL,XSJLL,TOTALOPERATEREVETZ,PARENTNETPROFITTZ",
                 "filter": f'(SECURITY_CODE="{code}")',
                 "pageNumber": 1, "pageSize": 1,
+                "sortTypes": "-1", "sortColumns": "REPORT_DATE",
                 "source": "WEB", "client": "WEB",
             }
-            resp = _get_session().get(base_url, params=params1, headers=dc_headers, timeout=3)
+            resp = _get_session().get(base_url, params=params, headers=dc_headers, timeout=2)
             d = resp.json()
             if d.get("success") and d.get("result") and d["result"].get("data"):
                 item = d["result"]["data"][0]
@@ -684,25 +686,10 @@ def _get_financial_data_individual(codes: list[str]) -> dict[str, FinancialData]
                     debt_ratio = float(item["ZCFZL"])
                 if item.get("XSJLL") is not None:
                     net_margin = float(item["XSJLL"])
-        except Exception:
-            pass
-
-        try:
-            params2 = {
-                "reportName": "RPT_LICO_FN_CPD",
-                "columns": "DATAYEAR,DATEMMDD,WEIGHTAVG_ROE,YSTZ,SJLTZ,XSMLL",
-                "filter": f'(SECURITY_CODE="{code}")',
-                "pageNumber": 1, "pageSize": 1,
-                "source": "WEB", "client": "WEB",
-            }
-            resp = _get_session().get(base_url, params=params2, headers=dc_headers, timeout=3)
-            d = resp.json()
-            if d.get("success") and d.get("result") and d["result"].get("data"):
-                item = d["result"]["data"][0]
-                if item.get("YSTZ") is not None:
-                    rev_growth = float(item["YSTZ"])
-                if item.get("SJLTZ") is not None:
-                    profit_growth = float(item["SJLTZ"])
+                if item.get("TOTALOPERATEREVETZ") is not None:
+                    rev_growth = float(item["TOTALOPERATEREVETZ"])
+                if item.get("PARENTNETPROFITTZ") is not None:
+                    profit_growth = float(item["PARENTNETPROFITTZ"])
         except Exception:
             pass
 
@@ -716,7 +703,7 @@ def _get_financial_data_individual(codes: list[str]) -> dict[str, FinancialData]
         )
 
     # 无 sleep 节流：连接池大小自然限制并发，ThreadPoolExecutor 控制线程数
-    max_workers = min(len(codes), _config.calibrate_threads, 25)
+    max_workers = min(len(codes), _config.calibrate_threads, 30)
     if max_workers < 1:
         return results
 
@@ -1328,19 +1315,45 @@ def preload_industry_cache(codes: list[str]) -> dict[str, dict]:
             except Exception:
                 return (code, {"industry": "其他", "sector_type": "default"})
 
-        with ThreadPoolExecutor(max_workers=8) as executor:
+        with ThreadPoolExecutor(max_workers=25) as executor:
             futures = {}
             for c in still_need_list:
                 futures[executor.submit(_fetch_one, c)] = c
-                # 无 sleep 节流：连接池大小自然限制并发
-            for future in as_completed(futures):
-                try:
-                    code, info = future.result(timeout=30)
-                    result[code] = info
-                except Exception:
-                    pass
+            try:
+                for future in as_completed(futures, timeout=60):
+                    try:
+                        code, info = future.result(timeout=10)
+                        result[code] = info
+                    except Exception:
+                        pass
+            except TimeoutError:
+                log.warning(f"行业预加载超时，已完成{len(result)}/{len(still_need_list)}只")
+                # 对未获取的用默认值
+                for c in still_need_list:
+                    if c not in result:
+                        result[c] = {"industry": "其他", "sector_type": "default"}
 
     _industry_cache_time = now
+    # 将新获取的行业信息持久化到文件缓存
+    try:
+        import os
+        cache_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'industry_cache.json')
+        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+        # 合并已有缓存和新获取的数据
+        merged = {}
+        if os.path.exists(cache_path):
+            try:
+                with open(cache_path, 'r', encoding='utf-8') as f:
+                    merged = json.load(f)
+            except Exception:
+                pass
+        for code, info in result.items():
+            if isinstance(info, dict) and info.get("industry"):
+                merged[code] = info["industry"]
+        with open(cache_path, 'w', encoding='utf-8') as f:
+            json.dump(merged, f, ensure_ascii=False)
+    except Exception:
+        pass
     log.info(f"行业缓存预加载完成: 总计 {len(codes)} 只, 已缓存 {len(result)} 只")
     return result
 
