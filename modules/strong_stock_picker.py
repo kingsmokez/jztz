@@ -113,7 +113,7 @@ def run_strong_stock_picker(top_n: int = 30) -> list[dict]:
         f = financials.get(code)
         roe = f.roe if f else 0
         if roe < 0:
-            continue  # 亏损企业不应入选强势股
+            continue
         filtered_codes.append(code)
     
     if len(filtered_codes) < len(codes):
@@ -121,10 +121,8 @@ def run_strong_stock_picker(top_n: int = 30) -> list[dict]:
     codes = filtered_codes
     candidates = {code: candidates[code] for code in codes if code in candidates}
 
-    # 3.5 批量计算技术指标（避免逐只调用超时）
+    # 3.5 批量预取K线数据（避免 calc_tech 逐只网络获取卡死）
     tech_cache: dict[str, dict] = {}
-
-    # 先批量获取K线（16线程+缓存+hedged request），避免 calculate_technical_indicators 逐只调用卡死
     from modules.kline_fetcher import kline_fetcher
     kline_fetcher.get_kline_batch(codes, count=120)
 
@@ -140,9 +138,9 @@ def run_strong_stock_picker(top_n: int = 30) -> list[dict]:
     try:
         with ThreadPoolExecutor(max_workers=25) as executor:
             futures = [executor.submit(calc_tech, c) for c in codes]
-            for future in as_completed(futures, timeout=180):
+            for future in as_completed(futures, timeout=300):
                 try:
-                    code, tech = future.result(timeout=30)
+                    code, tech = future.result(timeout=20)
                     if tech:
                         tech_cache[code] = tech
                 except Exception:
